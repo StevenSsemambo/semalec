@@ -1,0 +1,87 @@
+{
+  "tdit214": {
+    "id": "tdit214",
+    "title": "TDIT 214 — Object-Oriented Programming with Java I",
+    "description": "Introduces learners to Java as an OOP language covering data structures, algorithms and practical application development.",
+    "lecturer": "Ssemambo Steven",
+    "institution": "Makerere University",
+    "outline": "This module imparts knowledge of programming data structures and algorithms. It introduces the learner to object-oriented programming language Java. By the end learners should acquire advanced practical skills in OOP as well as design and development of computer application programs using Java.",
+    "modules": [
+      {
+        "id": "intro",
+        "icon": "☕",
+        "title": "Introduction to Java",
+        "slides": [
+          { "title": "Welcome to Java", "bullets": ["Java is a high-level, class-based, object-oriented programming language", "Write Once, Run Anywhere — compiles to bytecode for any JVM", "Powers Android apps, web backends, and enterprise systems", "Created by James Gosling at Sun Microsystems in 1995"] },
+          { "title": "Core Concepts", "bullets": ["Class — a blueprint defining properties and behaviours", "Object — a live instance created from a class", "Inheritance — a child class inherits from a parent", "Interface — a contract defining what a class must implement"] },
+          { "title": "Your Development Environment", "bullets": ["JDK — Java Development Kit, includes the compiler", "JRE — Java Runtime Environment, runs compiled programs", "IDE options: IntelliJ IDEA, Eclipse, VS Code", "javac compiles .java files; java command runs them"] }
+        ],
+        "code": "public class HelloWorld {\n\n    public static void main(String[] args) {\n        // main() is the entry point\n        System.out.println(\"Hello, Makerere University!\");\n        System.out.println(\"Welcome to TDIT 214 — Java I\");\n\n        String course = \"Object-Oriented Programming\";\n        int    year   = 2025;\n        System.out.println(course + \" — Year: \" + year);\n    }\n}",
+        "codeNote": "The class name must match the filename. main() is where the JVM starts. System.out.println() prints a line to the console. We declare a String and an int then concatenate them with the + operator."
+      },
+      {
+        "id": "oop",
+        "icon": "🔷",
+        "title": "Object-Oriented Features",
+        "hours": "16 hrs",
+        "slides": [
+          { "title": "Primitive Data Types", "bullets": ["int — whole numbers: int age = 20;", "double — decimals: double gpa = 4.10;", "boolean — true or false: boolean passed = true;", "char — single character: char grade = 'A';", "String — text (not primitive but commonly used)"] },
+          { "title": "Arrays", "bullets": ["Arrays hold multiple values of the same type", "Declaration: int[] marks = new int[5];", "Initialiser: int[] marks = {78, 85, 92};", "Index is zero-based — first element is marks[0]", ".length gives the number of elements"] },
+          { "title": "Operators", "bullets": ["Arithmetic: + − * / % (modulo)", "Assignment: = += -= *= /=", "Comparison: == != > < >= <= (return boolean)", "Logical: && (AND)  || (OR)  ! (NOT)", "Ternary: result = (a > b) ? a : b;"] }
+        ],
+        "code": "public class DataTypes {\n    public static void main(String[] args) {\n        int     age    = 20;\n        double  gpa    = 4.10;\n        boolean passed = true;\n        char    grade  = 'A';\n\n        System.out.println(\"Age: \"    + age);\n        System.out.println(\"GPA: \"    + gpa);\n        System.out.println(\"Passed: \" + passed);\n        System.out.println(\"Grade: \"  + grade);\n\n        int[] marks = {78, 85, 92, 67, 90};\n        System.out.println(\"Count: \"       + marks.length);\n        System.out.println(\"First mark: \" + marks[0]);\n\n        int a = 10, b = 3;\n        System.out.println(\"Sum: \"       + (a + b));\n        System.out.println(\"Remainder: \" + (a % b));\n        System.out.println(\"a > b? \"     + (a > b));\n    }\n}",
+        "codeNote": "Five primitive variables are declared. The marks array uses an initialiser — the size is inferred automatically. marks.length returns 5. The last three lines demonstrate arithmetic, modulo and comparison operators."
+      },
+      {
+        "id": "classes",
+        "icon": "🧱",
+        "title": "Classes & Objects",
+        "hours": "15 hrs",
+        "slides": [
+          { "title": "Anatomy of a Class", "bullets": ["Fields — data the object holds", "Constructor — initialises the object when created", "Methods — actions the object can perform", "Access modifiers: public, private, protected", "this keyword refers to the current object"] },
+          { "title": "Constructors", "bullets": ["Same name as the class, no return type", "Called when you write: new ClassName()", "You can overload constructors with different parameters", "super() calls the parent class constructor"] },
+          { "title": "Encapsulation", "bullets": ["Make fields private", "Provide public getters and setters", "Setters can validate data before storing", "Hides internal details from outside code"] }
+        ],
+        "code": "public class Student {\n    private String name;\n    private int    age;\n    private double gpa;\n\n    public Student(String name, int age, double gpa) {\n        this.name = name;\n        this.age  = age;\n        this.gpa  = gpa;\n    }\n\n    public String getName() { return name; }\n\n    public void setGpa(double gpa) {\n        if (gpa >= 0 && gpa <= 5) this.gpa = gpa;\n    }\n\n    public void introduce() {\n        System.out.println(\"Hi! I am \" + name +\n            \", age \" + age + \", GPA: \" + gpa);\n    }\n\n    public static void main(String[] args) {\n        Student s1 = new Student(\"Alice\", 20, 4.10);\n        Student s2 = new Student(\"Bob\",   22, 3.85);\n        s1.introduce();\n        s2.introduce();\n        s1.setGpa(4.50);\n    }\n}",
+        "codeNote": "Fields are private so outside code cannot access them directly. The constructor uses this.name to distinguish the field from the parameter. The setter validates the GPA before storing it. Two Student objects are created from the same class blueprint."
+      },
+      {
+        "id": "control",
+        "icon": "🔀",
+        "title": "Control Flow & Conditionals",
+        "slides": [
+          { "title": "if / else if / else", "bullets": ["Executes a block only when its condition is true", "Conditions are boolean expressions: a > b, x == 5", "else if chains allow multiple paths", "else is the catch-all fallback"] },
+          { "title": "Loops", "bullets": ["for — best when iteration count is known", "while — repeats while condition is true", "do-while — always executes at least once", "for-each — iterate arrays: for(int m : marks)", "break exits; continue skips to next iteration"] },
+          { "title": "switch Statement", "bullets": ["Matches a value against fixed cases", "Each case must end with break", "default handles unmatched values", "Cleaner than long if-else if chains"] }
+        ],
+        "code": "public class ControlFlow {\n    public static void main(String[] args) {\n        int score = 75;\n        if      (score >= 80) System.out.println(\"Distinction\");\n        else if (score >= 70) System.out.println(\"Credit\");\n        else if (score >= 60) System.out.println(\"Pass\");\n        else                  System.out.println(\"Fail\");\n\n        int[] marks = {78, 85, 92, 67, 90};\n        int total = 0;\n        for (int i = 0; i < marks.length; i++) {\n            total += marks[i];\n        }\n        System.out.println(\"Average: \" + (total / marks.length));\n\n        for (int m : marks) System.out.print(m + \" \");\n        System.out.println();\n\n        char grade = 'B';\n        switch (grade) {\n            case 'A': System.out.println(\"Excellent!\"); break;\n            case 'B': System.out.println(\"Good job!\");  break;\n            default:  System.out.println(\"Keep going!\");\n        }\n    }\n}",
+        "codeNote": "The if-else chain maps score to grade. The for loop accumulates marks and divides for the average. The for-each loop prints all marks on one line. The switch maps a char grade to feedback — every case ends with break to prevent fall-through."
+      },
+      {
+        "id": "inheritance",
+        "icon": "🧬",
+        "title": "Interfaces & Inheritance",
+        "hours": "12 hrs",
+        "slides": [
+          { "title": "Inheritance", "bullets": ["class Dog extends Animal — Dog is child, Animal is parent", "Child inherits all non-private fields and methods", "super() calls the parent constructor", "A class can only extend ONE parent"] },
+          { "title": "Polymorphism & Overriding", "bullets": ["@Override — child redefines a parent method", "At runtime Java calls the actual object's version", "Animal a = new Dog() — reference Animal, object Dog", "a.speak() calls Dog's speak() — that is polymorphism"] },
+          { "title": "Interfaces", "bullets": ["Declared with the interface keyword", "All methods are abstract by default", "A class implements an interface: implements Speakable", "One class can implement multiple interfaces"] }
+        ],
+        "code": "interface Speakable {\n    void speak();\n    default void greet() {\n        System.out.println(\"Hello from a speaking creature!\");\n    }\n}\n\nclass Animal {\n    protected String name;\n    Animal(String name) { this.name = name; }\n    public void eat() { System.out.println(name + \" is eating.\"); }\n}\n\nclass Dog extends Animal implements Speakable {\n    Dog(String name) { super(name); }\n    @Override\n    public void speak() { System.out.println(name + \": Woof! 🐕\"); }\n}\n\nclass Cat extends Animal implements Speakable {\n    Cat(String name) { super(name); }\n    @Override\n    public void speak() { System.out.println(name + \": Meow! 🐈\"); }\n}\n\npublic class Main {\n    public static void main(String[] args) {\n        Animal[] zoo = { new Dog(\"Rex\"), new Cat(\"Kitty\"), new Dog(\"Buddy\") };\n        for (Animal a : zoo) {\n            a.eat();\n            ((Speakable) a).speak();\n        }\n    }\n}",
+        "codeNote": "Speakable is an interface with an abstract method and a default method. Dog and Cat both extend Animal and implement Speakable. The zoo array holds Animal references but actual objects are Dog and Cat — calling speak() invokes the correct overridden version. That is runtime polymorphism."
+      },
+      {
+        "id": "databases",
+        "icon": "🗄️",
+        "title": "Graphics & Databases",
+        "slides": [
+          { "title": "Java Swing Basics", "bullets": ["JFrame — the top-level window", "JPanel — a container to organise components", "JLabel — displays text or an image", "JButton — a clickable button", "JTextField — single-line text input"] },
+          { "title": "Event Handling", "bullets": ["ActionListener handles button clicks", "addActionListener(e -> { ... }) — lambda syntax", "MouseListener for mouse events", "SwingUtilities.invokeLater() — always build GUI on EDT"] },
+          { "title": "JDBC — Database Connectivity", "bullets": ["JDBC = Java Database Connectivity", "Connect: DriverManager.getConnection(url, user, pass)", "Execute: Statement.executeQuery() returns ResultSet", "Iterate ResultSet row by row", "Always close connection when done"] }
+        ],
+        "code": "import javax.swing.*;\nimport java.awt.*;\n\npublic class StudentForm extends JFrame {\n    private JTextField nameField = new JTextField(16);\n    private JTextField gpaField  = new JTextField(6);\n    private JLabel     result    = new JLabel(\"Enter details above\");\n\n    public StudentForm() {\n        setTitle(\"TDIT 214 — Student Entry\");\n        setSize(360, 200);\n        setDefaultCloseOperation(EXIT_ON_CLOSE);\n        setLayout(new FlowLayout(FlowLayout.LEFT, 12, 12));\n\n        add(new JLabel(\"Name:\")); add(nameField);\n        add(new JLabel(\"GPA:\"));  add(gpaField);\n\n        JButton btn = new JButton(\"Submit\");\n        btn.addActionListener(e -> {\n            String name = nameField.getText();\n            double gpa  = Double.parseDouble(gpaField.getText());\n            result.setText(name + \" — GPA: \" + gpa +\n                (gpa >= 4.0 ? \" ✅ Dean's List!\" : \" 📚 Keep going!\"));\n        });\n\n        add(btn); add(result);\n        setVisible(true);\n    }\n\n    public static void main(String[] args) {\n        SwingUtilities.invokeLater(StudentForm::new);\n    }\n}",
+        "codeNote": "We extend JFrame and add components with FlowLayout. The lambda inside addActionListener runs when Submit is clicked. It reads both fields, parses GPA as a double, and shows a Dean's List message for GPA 4.0 and above. SwingUtilities.invokeLater keeps everything on the Event Dispatch Thread."
+      }
+    ]
+  }
+}

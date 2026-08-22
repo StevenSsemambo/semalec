@@ -1,0 +1,323 @@
+import { useState, useEffect, useRef } from "react";
+import { getCourses, deleteCourse, saveCourse, generateCourse, uploadCourseSource } from "../api";
+import { supabase, signUpLecturer, signInLecturer, signOutLecturer, getLecturerProfile } from "../supabaseClient";
+
+export default function Admin({ onBack }) {
+  const [session, setSession] = useState(undefined); // undefined = loading, null = signed out
+  const [profile, setProfile] = useState(null);
+  const [authMode, setAuthMode] = useState("signin"); // signin | signup
+  const [authForm, setAuthForm] = useState({ email:"", password:"", name:"", institution:"" });
+  const [authStatus, setAuthStatus] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+
+  const [courses, setCourses] = useState([]);
+  const [tab, setTab] = useState("list"); // list | generate
+
+  const [genForm, setGenForm] = useState({ title:"", lecturer:"", institution:"", sourceText:"" });
+  const [genStatus, setGenStatus] = useState("");
+  const [genLoading, setGenLoading] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // ── Auth session ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (session?.user) {
+      getLecturerProfile(session.user.id).then(p => {
+        setProfile(p);
+        if (p) setGenForm(f => ({ ...f, lecturer: p.name, institution: p.institution || "" }));
+      });
+    } else {
+      setProfile(null);
+    }
+  }, [session]);
+
+  const load = () => getCourses().then(d => setCourses(d.courses || []));
+  useEffect(() => { if (session) load(); }, [session]);
+
+  const submitAuth = async () => {
+    setAuthLoading(true); setAuthStatus("");
+    try {
+      if (authMode === "signup") {
+        if (!authForm.name.trim()) throw new Error("Name is required.");
+        await signUpLecturer(authForm);
+        setAuthStatus("✅ Account created! Check your email to confirm, then sign in.");
+        setAuthMode("signin");
+      } else {
+        await signInLecturer(authForm);
+      }
+    } catch (err) {
+      setAuthStatus(`❌ ${err.message || "Something went wrong."}`);
+    }
+    setAuthLoading(false);
+  };
+
+  const signOut = async () => { await signOutLecturer(); };
+
+  const del = async (id) => {
+    if (!confirm("Delete this course? This removes it for everyone using the app.")) return;
+    try { await deleteCourse(id); load(); } catch (err) { alert(err.message); }
+  };
+
+  // ── Generate flow ────────────────────────────────────────────────────────
+  const genInp = (field) => ({
+    value: genForm[field],
+    onChange: e => setGenForm(f => ({ ...f, [field]: e.target.value })),
+    style: { width:"100%", padding:"10px 13px", borderRadius:9, border:"1px solid #374151", background:"#111827", color:"white", fontSize:13, outline:"none", boxSizing:"border-box", marginBottom:12 },
+  });
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadLoading(true); setGenStatus("");
+    try {
+      const { text } = await uploadCourseSource(file);
+      setGenForm(f => ({ ...f, sourceText: f.sourceText ? `${f.sourceText}\n\n${text}` : text }));
+      setGenStatus(`✅ Extracted text from ${file.name} — review it below before generating.`);
+    } catch (err) {
+      setGenStatus(`❌ ${err.message}`);
+    }
+    setUploadLoading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const runGenerate = async () => {
+    if (!genForm.title.trim()) { setGenStatus("❌ Course title is required."); return; }
+    if (!genForm.sourceText.trim()) { setGenStatus("❌ Describe the content, or upload a PDF/file first."); return; }
+    setGenLoading(true); setGenStatus(""); setPreview(null);
+    try {
+      const course = await generateCourse(genForm);
+      setPreview(course);
+      setGenStatus(`✅ Generated ${course.modules.length} module${course.modules.length===1?"":"s"}${course.subject ? ` for ${course.subject}` : ""} — review below, then save.`);
+    } catch (err) {
+      setGenStatus(`❌ ${err.message || "Generation failed — please try again."}`);
+    }
+    setGenLoading(false);
+  };
+
+  const savePreview = async () => {
+    if (!preview) return;
+    setGenLoading(true);
+    try {
+      await saveCourse({ title: genForm.title, ...preview });
+      setGenStatus("✅ Course unit saved! It's now available to every student on the Join screen.");
+      setPreview(null);
+      setGenForm(f => ({ title:"", lecturer:f.lecturer, institution:f.institution, sourceText:"" }));
+      load();
+      setTab("list");
+    } catch (err) {
+      setGenStatus(`❌ ${err.message || "Save failed — please try again."}`);
+    }
+    setGenLoading(false);
+  };
+
+  // ── Loading ──────────────────────────────────────────────────────────────
+  if (session === undefined) {
+    return <div style={{ height:"100vh", background:"#0F0C29", display:"flex", alignItems:"center", justifyContent:"center", color:"#6B7280", fontFamily:"system-ui" }}>Loading…</div>;
+  }
+
+  // ── Sign in / sign up gate ───────────────────────────────────────────────
+  if (!session) {
+    return (
+      <div style={{ minHeight:"100vh", background:"#0F0C29", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
+        <div style={{ width:"90%", maxWidth:380, padding:20 }}>
+          <div style={{ textAlign:"center", marginBottom:20 }}>
+            <div style={{ width:64, height:64, borderRadius:18, background:"linear-gradient(135deg,#7C3AED,#4F46E5)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, margin:"0 auto 14px" }}>🎓</div>
+            <h2 style={{ color:"white", fontSize:20, fontWeight:800, margin:"0 0 4px" }}>Lecturer {authMode === "signup" ? "Sign Up" : "Sign In"}</h2>
+            <p style={{ color:"#6B7280", fontSize:12, margin:0 }}>Any subject welcome — programming, business, science, law, and more.</p>
+          </div>
+          <div style={{ background:"#1A1640", borderRadius:16, padding:22, border:"1px solid #2D2757" }}>
+            {authMode === "signup" && (
+              <>
+                <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>YOUR NAME *</label>
+                <input value={authForm.name} onChange={e=>setAuthForm(f=>({...f,name:e.target.value}))}
+                  placeholder="e.g. Ssemambo Steven"
+                  style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:14, marginBottom:12, boxSizing:"border-box" }}/>
+                <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>INSTITUTION</label>
+                <input value={authForm.institution} onChange={e=>setAuthForm(f=>({...f,institution:e.target.value}))}
+                  placeholder="e.g. Makerere University Business School"
+                  style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:14, marginBottom:12, boxSizing:"border-box" }}/>
+              </>
+            )}
+            <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>EMAIL *</label>
+            <input type="email" value={authForm.email} onChange={e=>setAuthForm(f=>({...f,email:e.target.value}))}
+              placeholder="you@example.com"
+              style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:14, marginBottom:12, boxSizing:"border-box" }}/>
+            <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>PASSWORD *</label>
+            <input type="password" value={authForm.password} onChange={e=>setAuthForm(f=>({...f,password:e.target.value}))}
+              onKeyDown={e=>e.key==="Enter"&&submitAuth()} placeholder="At least 6 characters"
+              style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:14, marginBottom:16, boxSizing:"border-box" }}/>
+
+            {authStatus && <p style={{ color: authStatus.startsWith("✅")?"#34D399":"#F87171", fontSize:12, marginBottom:12 }}>{authStatus}</p>}
+
+            <button onClick={submitAuth} disabled={authLoading || !authForm.email.trim() || !authForm.password.trim()}
+              style={{ width:"100%", padding:"13px", borderRadius:10, border:"none", background:authLoading?"#374151":"linear-gradient(135deg,#7C3AED,#4F46E5)", color:"white", fontSize:14, fontWeight:700, cursor:authLoading?"default":"pointer", marginBottom:12 }}>
+              {authLoading ? "Please wait…" : authMode === "signup" ? "Create Account →" : "Sign In →"}
+            </button>
+
+            <button onClick={()=>{ setAuthMode(m=>m==="signup"?"signin":"signup"); setAuthStatus(""); }}
+              style={{ width:"100%", background:"none", border:"none", color:"#6B7280", fontSize:12, cursor:"pointer" }}>
+              {authMode === "signup" ? "Already have an account? Sign in" : "New here? Create a lecturer account"}
+            </button>
+          </div>
+          <button onClick={onBack} style={{ display:"block", margin:"14px auto 0", background:"none", border:"none", color:"#4B5563", fontSize:12, cursor:"pointer" }}>← Back</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Signed in ────────────────────────────────────────────────────────────
+  const displayName = profile?.name || session.user.email;
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#0F0C29", fontFamily:"'Segoe UI',system-ui,sans-serif", color:"white" }}>
+      <div style={{ background:"#161616", borderBottom:"1px solid #2D2D2D", padding:"12px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:20 }}>🎓</span>
+          <span style={{ fontWeight:700, fontSize:15 }}>SEMAI Admin</span>
+          <span style={{ color:"#4B5563", fontSize:11 }}>· {displayName}{profile?.institution ? ` · ${profile.institution}` : ""}</span>
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={signOut} style={{ background:"#2D2D2D", border:"none", borderRadius:8, padding:"6px 14px", color:"#9CA3AF", cursor:"pointer", fontSize:12 }}>Sign out</button>
+          <button onClick={onBack} style={{ background:"#1F2937", border:"1px solid #374151", borderRadius:8, padding:"6px 14px", color:"#9CA3AF", cursor:"pointer", fontSize:12 }}>← Back</button>
+        </div>
+      </div>
+
+      <div style={{ maxWidth:740, margin:"30px auto", padding:"0 20px 60px" }}>
+        <div style={{ display:"flex", gap:0, marginBottom:20, borderBottom:"1px solid #2D2D2D" }}>
+          {["list","generate"].map(t => (
+            <button key={t} onClick={()=>setTab(t)} style={{ background:"none", border:"none", borderBottom:tab===t?"2px solid #7C3AED":"2px solid transparent", color:tab===t?"#A78BFA":"#6B7280", cursor:"pointer", padding:"9px 18px", fontSize:13, fontWeight:tab===t?600:400 }}>
+              {t==="list" ? `📚 All Course Units (${courses.length})` : "✨ Add a Course Unit"}
+            </button>
+          ))}
+        </div>
+
+        {tab==="list" && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <p style={{ color:"#4B5563", fontSize:11, margin:"0 0 6px" }}>
+              This list is shared — every course unit added by any lecturer appears here and on every
+              student's Join screen. You can only delete units you created yourself.
+            </p>
+            {courses.length === 0 && <p style={{ color:"#4B5563", textAlign:"center", marginTop:30 }}>No courses yet. Try "Add a Course Unit" above.</p>}
+            {courses.map(c => {
+              const isMine = c.lecturer && (c.lecturer === profile?.name || c.lecturer === session.user.email);
+              return (
+                <div key={c.id} style={{ background:"#1A1A2E", border:"1px solid #2D2D4A", borderRadius:12, padding:"16px 18px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+                  <div>
+                    <div style={{ fontWeight:600, fontSize:14, marginBottom:3 }}>{c.title}</div>
+                    <div style={{ color:"#6B7280", fontSize:11 }}>
+                      {c.moduleCount} modules{c.subject ? ` · ${c.subject}` : ""}{c.lecturer ? ` · by ${c.lecturer}` : ""}
+                    </div>
+                    {c.description && <div style={{ color:"#4B5563", fontSize:11, marginTop:3 }}>{c.description.slice(0,90)}…</div>}
+                  </div>
+                  {isMine && (
+                    <button onClick={()=>del(c.id)} style={{ background:"#991B1B", border:"none", borderRadius:7, padding:"6px 12px", color:"white", cursor:"pointer", fontSize:11, flexShrink:0 }}>Delete</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {tab==="generate" && (
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+            <div style={{ background:"#1A1A2E", border:"1px solid #2D2D4A", borderRadius:14, padding:24 }}>
+              <h3 style={{ margin:"0 0 4px", fontSize:15, color:"#A78BFA" }}>Add a new course unit</h3>
+              <p style={{ color:"#6B7280", fontSize:12, margin:"0 0 18px" }}>
+                Works for any subject — programming, business, marketing, accounting, history, science,
+                law, anything you teach. Every course you add becomes its own separate unit and appears
+                as a new option on the Join screen for every student. Upload your slides or a syllabus
+                PDF, paste your notes, or just describe the topics you want covered — SEMAI will design
+                the modules, slides, and a fitting hands-on exercise (code for technical subjects, a
+                worked example for everything else).
+              </p>
+
+              <label style={{ fontSize:11, color:"#6B7280" }}>COURSE TITLE *</label>
+              <input {...genInp("title")} placeholder="e.g. BUS 220 — Principles of Marketing"/>
+
+              <label style={{ fontSize:11, color:"#6B7280" }}>LECTURER NAME</label>
+              <input {...genInp("lecturer")} placeholder="e.g. Ssemambo Steven"/>
+
+              <label style={{ fontSize:11, color:"#6B7280" }}>INSTITUTION</label>
+              <input {...genInp("institution")} placeholder="e.g. Makerere University"/>
+
+              <label style={{ fontSize:11, color:"#6B7280" }}>UPLOAD SLIDES / SYLLABUS (PDF or .txt)</label>
+              <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:12 }}>
+                <input ref={fileInputRef} type="file" accept=".pdf,.txt" onChange={handleFile}
+                  style={{ fontSize:12, color:"#9CA3AF" }}/>
+                {uploadLoading && <span style={{ fontSize:11, color:"#A78BFA" }}>Extracting text…</span>}
+              </div>
+
+              <label style={{ fontSize:11, color:"#6B7280" }}>OR PASTE YOUR COURSE / MODULE OUTLINE *</label>
+              <p style={{ color:"#4B5563", fontSize:11, margin:"2px 0 6px" }}>
+                Paste a syllabus, lecture notes, or just describe the concepts you want SEMAI to teach —
+                the more detail you give, the closer the generated slides will match your actual lecture.
+              </p>
+              <textarea value={genForm.sourceText} onChange={e=>setGenForm(f=>({...f,sourceText:e.target.value}))}
+                placeholder="Paste a course outline like:&#10;&#10;Module 1: Introduction to the 4 Ps — product, price, place, promotion, with real brand examples.&#10;Module 2: Market Segmentation — demographic, psychographic, and behavioural segmentation, case study.&#10;Module 3: Digital Marketing Basics — SEO, social media, email campaigns, measuring ROI.&#10;&#10;...or just describe the topics you want covered."
+                rows={9}
+                style={{ width:"100%", padding:"10px 13px", borderRadius:9, border:"1px solid #374151", background:"#111827", color:"white", fontSize:13, outline:"none", boxSizing:"border-box", resize:"vertical", marginBottom:14 }}/>
+
+              {genStatus && <p style={{ color: genStatus.startsWith("✅")?"#34D399":"#F87171", fontSize:12, marginBottom:10 }}>{genStatus}</p>}
+
+              <button onClick={runGenerate} disabled={genLoading}
+                style={{ background:genLoading?"#374151":"linear-gradient(135deg,#7C3AED,#4F46E5)", border:"none", borderRadius:10, padding:"12px 24px", color:"white", cursor:genLoading?"default":"pointer", fontSize:13, fontWeight:700 }}>
+                {genLoading ? "SEMAI is designing your course…" : "✨ Generate Course"}
+              </button>
+            </div>
+
+            {preview && (
+              <div style={{ background:"#1A1A2E", border:"1px solid #2D2D4A", borderRadius:14, padding:24 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6, flexWrap:"wrap", gap:10 }}>
+                  <div>
+                    <h3 style={{ margin:0, fontSize:15, color:"#A78BFA" }}>Preview: {genForm.title}</h3>
+                    <p style={{ color:"#6B7280", fontSize:12, margin:"4px 0 0" }}>{preview.description}{preview.subject ? ` · ${preview.subject}` : ""}</p>
+                  </div>
+                  <button onClick={savePreview} disabled={genLoading}
+                    style={{ background:"#7C3AED", border:"none", borderRadius:9, padding:"10px 18px", color:"white", cursor:"pointer", fontSize:12, fontWeight:700, whiteSpace:"nowrap", flexShrink:0 }}>
+                    ✅ Save Course
+                  </button>
+                </div>
+
+                <div style={{ display:"flex", flexDirection:"column", gap:12, marginTop:16 }}>
+                  {preview.modules.map((m, i) => (
+                    <div key={m.id} style={{ background:"#111827", border:"1px solid #2D2D4A", borderRadius:10, padding:14 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                        <span style={{ fontSize:18 }}>{m.icon}</span>
+                        <span style={{ fontWeight:600, fontSize:13 }}>{i+1}. {m.title}</span>
+                        <span style={{ color:"#4B5563", fontSize:11, marginLeft:"auto" }}>{m.slides.length} slides</span>
+                      </div>
+                      {m.slides.map((s, si) => (
+                        <div key={si} style={{ marginBottom:8, paddingLeft:10, borderLeft:"2px solid #2D2D4A" }}>
+                          <div style={{ fontSize:12, color:"#E2E8F0", fontWeight:600, marginBottom:2 }}>{s.title}</div>
+                          <ul style={{ margin:0, paddingLeft:16, color:"#9CA3AF", fontSize:11.5, lineHeight:1.6 }}>
+                            {s.bullets.map((b, bi) => <li key={bi}>{b}</li>)}
+                          </ul>
+                        </div>
+                      ))}
+                      {m.practicalType !== "none" && m.practical && (
+                        <details style={{ marginTop:8 }}>
+                          <summary style={{ cursor:"pointer", fontSize:11, color:"#7C3AED" }}>
+                            View {m.practicalType === "code" ? `code demo (${m.practicalLanguage || "code"})` : "worked example"}
+                          </summary>
+                          <pre style={{ background:"#0A0A0A", borderRadius:7, padding:10, fontSize:11, color:"#D4D4D4", overflowX:"auto", marginTop:6, fontFamily:"'Fira Code',monospace", whiteSpace:"pre-wrap" }}>{m.practical}</pre>
+                          {m.practicalNote && <p style={{ color:"#6B7280", fontSize:11, marginTop:6 }}>{m.practicalNote}</p>}
+                        </details>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

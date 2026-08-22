@@ -1,0 +1,110 @@
+-- ============================================================
+-- SEMAI — Supabase schema
+-- Run this once in your Supabase project's SQL Editor
+-- (Project → SQL Editor → New query → paste → Run)
+-- ============================================================
+
+create extension if not exists "pgcrypto";
+
+-- ── Lecturer profiles ──────────────────────────────────────────────────────
+-- One row per Supabase Auth user. Created automatically on sign-up (see trigger below).
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  name text not null,
+  institution text,
+  created_at timestamptz default now()
+);
+
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, name, institution)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'name', new.email),
+    new.raw_user_meta_data->>'institution'
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- ── Courses ────────────────────────────────────────────────────────────────
+create table if not exists public.courses (
+  id text primary key,                 -- slugified title, e.g. "bus-220-principles-of-marketing"
+  title text not null,
+  description text default '',
+  subject text default '',             -- e.g. "Marketing", "Java Programming", "World History"
+  outline text default '',             -- raw source text the lecturer pasted / uploaded
+  lecturer_id uuid references auth.users(id) on delete set null,
+  lecturer_name text default '',
+  institution text default '',
+  created_at timestamptz default now()
+);
+
+-- ── Modules ────────────────────────────────────────────────────────────────
+create table if not exists public.modules (
+  id uuid primary key default gen_random_uuid(),
+  course_id text references public.courses(id) on delete cascade,
+  position int not null default 0,
+  icon text default '',
+  title text not null,
+  practical_type text default 'none',      -- 'code' | 'example' | 'none'
+  practical_language text default '',      -- e.g. 'java', 'python' — only when practical_type = 'code'
+  practical text default '',               -- code OR worked-example text
+  practical_note text default ''           -- caption explaining the practical section
+);
+
+-- ── Slides ─────────────────────────────────────────────────────────────────
+create table if not exists public.slides (
+  id uuid primary key default gen_random_uuid(),
+  module_id uuid references public.modules(id) on delete cascade,
+  position int not null default 0,
+  title text not null,
+  bullets jsonb not null default '[]'::jsonb
+);
+
+-- ── Student progress (students are name-only, no account required) ────────
+create table if not exists public.progress (
+  id uuid primary key default gen_random_uuid(),
+  student_name text not null,
+  course_id text references public.courses(id) on delete cascade,
+  module_id uuid references public.modules(id) on delete set null,
+  slide_index int default 0,
+  completed boolean default false,
+  updated_at timestamptz default now()
+);
+
+create index if not exists modules_course_id_idx on public.modules(course_id);
+create index if not exists slides_module_id_idx on public.slides(module_id);
+create index if not exists progress_course_student_idx on public.progress(course_id, student_name);
+
+-- ── Row Level Security ──────────────────────────────────────────────────────
+alter table public.profiles enable row level security;
+alter table public.courses  enable row level security;
+alter table public.modules  enable row level security;
+alter table public.slides   enable row level security;
+alter table public.progress enable row level security;
+
+-- Everyone (including anonymous students) can read course content — needed for the Join screen.
+create policy "profiles readable by anyone" on public.profiles for select using (true);
+create policy "courses readable by anyone"  on public.courses  for select using (true);
+create policy "modules readable by anyone"  on public.modules  for select using (true);
+create policy "slides readable by anyone"   on public.slides   for select using (true);
+
+-- Lecturers can update their own profile.
+create policy "users manage own profile" on public.profiles for update using (auth.uid() = id);
+
+-- Course/module/slide writes are NOT exposed via public policy — they only happen through the
+-- Flask backend using the service-role key, which itself checks the requesting lecturer's identity
+-- (see backend/routes/curriculum.py) before writing. This keeps ownership enforcement server-side.
+
+-- Students aren't authenticated, so progress is open for insert/update/select.
+-- (Fine for a lightweight classroom tool; tighten later if you add real student accounts.)
+create policy "progress insert by anyone" on public.progress for insert with check (true);
+create policy "progress select by anyone" on public.progress for select using (true);
+create policy "progress update by anyone" on public.progress for update using (true);
