@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { getCourses } from "../api";
 
-export default function Join({ onJoin }) {
+export default function Join({ onJoin, onBack }) {
   const [name,     setName]     = useState("");
   const [courses,  setCourses]  = useState([]);
   const [courseId, setCourseId] = useState("tdit214");
@@ -21,6 +21,11 @@ export default function Join({ onJoin }) {
       `}</style>
 
       <div style={{ textAlign:"center", width:"90%", maxWidth:400, padding:20 }}>
+        {onBack && (
+          <button onClick={onBack} style={{ background:"none", border:"none", color:"#4B5563", fontSize:12, cursor:"pointer", marginBottom:10, padding:0 }}>
+            ← Back
+          </button>
+        )}
         {/* Logo */}
         <div style={{ width:76, height:76, borderRadius:22, background:"linear-gradient(135deg,#7C3AED,#4F46E5)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:38, margin:"0 auto 20px", boxShadow:"0 0 40px rgba(124,58,237,0.45)", animation:"float 3s ease-in-out infinite" }}>☕</div>
         <h1 style={{ color:"white", fontSize:28, fontWeight:900, margin:"0 0 4px" }}>SEMAI</h1>
