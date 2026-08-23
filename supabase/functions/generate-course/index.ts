@@ -1,6 +1,8 @@
 // SEMAI — /generate-course Edge Function
 // Ports backend/routes/generate.py's /generate/course endpoint — AI curriculum generation.
 // Uses Gemini instead of Claude, with responseMimeType forced to JSON.
+// Uses a classic static AIza API key (x-goog-api-key header) — AQ. Auth keys need real OAuth
+// credentials, which a serverless Edge Function has no way to provide.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,7 +11,7 @@ const corsHeaders = {
 };
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-3.6-flash";
 const MODULE_ICONS = ["📘", "🔷", "🧱", "🔀", "🧬", "🗄️", "⚙️", "📦", "🧮", "🌐"];
 
 const GENERATE_SYSTEM_PROMPT = `You are an expert curriculum designer helping a lecturer turn their raw
@@ -146,7 +148,11 @@ Generate the course JSON now.`;
       },
     );
 
-    if (!resp.ok) return json({ error: await resp.text() }, 500);
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error("Gemini API error", resp.status, errText);
+      return json({ error: errText }, 500);
+    }
 
     const result = await resp.json();
     const raw = result.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
@@ -154,8 +160,9 @@ Generate the course JSON now.`;
     let parsed: any;
     try {
       parsed = extractJson(raw);
-    } catch {
-      return json({ error: "SEMAI produced an unexpected format — please try again." }, 502);
+    } catch (e) {
+      console.error("JSON parse failure. Raw text was:", raw);
+      return json({ error: `SEMAI produced an unexpected format — please try again. (${e})` }, 502);
     }
 
     const modules = (parsed.modules ?? []).map((m: any, i: number) => sanitizeModule(m, i));
