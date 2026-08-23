@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { getCourses, deleteCourse, saveCourse, generateCourse, uploadCourseSource } from "../api";
+import { getCourses, getCourse, deleteCourse, saveCourse, generateCourse, uploadCourseSource } from "../api";
 import { supabase, signUpLecturer, signInLecturer, signOutLecturer, getLecturerProfile } from "../supabaseClient";
 
 export default function Admin({ onBack }) {
@@ -19,6 +19,11 @@ export default function Admin({ onBack }) {
   const [uploadLoading, setUploadLoading] = useState(false);
   const [preview, setPreview] = useState(null);
   const fileInputRef = useRef(null);
+
+  // ── Edit-existing-course state ──────────────────────────────────────────
+  const [editingCourse, setEditingCourse] = useState(null); // full course object being edited, or null
+  const [editLoading, setEditLoading] = useState(false);
+  const [editStatus, setEditStatus] = useState("");
 
   // ── Auth session ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -63,6 +68,87 @@ export default function Admin({ onBack }) {
   const del = async (id) => {
     if (!confirm("Delete this course? This removes it for everyone using the app.")) return;
     try { await deleteCourse(id); load(); } catch (err) { alert(err.message); }
+  };
+
+  // ── Edit flow ────────────────────────────────────────────────────────────
+  const startEdit = async (id) => {
+    setTab("edit"); setEditingCourse(null); setEditStatus("");
+    try {
+      const course = await getCourse(id);
+      setEditingCourse(course);
+    } catch (err) {
+      setEditStatus(`❌ ${err.message}`);
+    }
+  };
+
+  const updateField = (key, value) => setEditingCourse(c => ({ ...c, [key]: value }));
+
+  const updateModule = (mi, key, value) => setEditingCourse(c => {
+    const modules = [...c.modules];
+    modules[mi] = { ...modules[mi], [key]: value };
+    return { ...c, modules };
+  });
+
+  const addModule = () => setEditingCourse(c => ({
+    ...c,
+    modules: [...c.modules, { id: `module-${Date.now()}`, icon: "📘", title: "New module", slides: [{ title: "New slide", bullets: [""] }], practicalType: "none", practicalLanguage: "", practical: "", practicalNote: "" }],
+  }));
+
+  const removeModule = (mi) => {
+    if (!confirm("Remove this module? This won't take effect until you save.")) return;
+    setEditingCourse(c => ({ ...c, modules: c.modules.filter((_, i) => i !== mi) }));
+  };
+
+  const moveModule = (mi, dir) => setEditingCourse(c => {
+    const modules = [...c.modules];
+    const target = mi + dir;
+    if (target < 0 || target >= modules.length) return c;
+    [modules[mi], modules[target]] = [modules[target], modules[mi]];
+    return { ...c, modules };
+  });
+
+  const updateSlide = (mi, si, key, value) => setEditingCourse(c => {
+    const modules = [...c.modules];
+    const slides = [...modules[mi].slides];
+    slides[si] = { ...slides[si], [key]: value };
+    modules[mi] = { ...modules[mi], slides };
+    return { ...c, modules };
+  });
+
+  const updateBullets = (mi, si, text) => updateSlide(mi, si, "bullets", text.split("\n"));
+
+  const addSlide = (mi) => setEditingCourse(c => {
+    const modules = [...c.modules];
+    modules[mi] = { ...modules[mi], slides: [...modules[mi].slides, { title: "New slide", bullets: [""] }] };
+    return { ...c, modules };
+  });
+
+  const removeSlide = (mi, si) => setEditingCourse(c => {
+    const modules = [...c.modules];
+    modules[mi] = { ...modules[mi], slides: modules[mi].slides.filter((_, i) => i !== si) };
+    return { ...c, modules };
+  });
+
+  const saveEdits = async () => {
+    if (!editingCourse) return;
+    if (!editingCourse.title.trim()) { setEditStatus("❌ Course title is required."); return; }
+    setEditLoading(true); setEditStatus("");
+    try {
+      const payload = {
+        ...editingCourse,
+        modules: editingCourse.modules.map(m => ({
+          ...m,
+          slides: m.slides.map(s => ({ ...s, bullets: s.bullets.filter(b => b.trim()) })),
+        })),
+      };
+      await saveCourse(payload);
+      setEditStatus("✅ Changes saved!");
+      load();
+      setTimeout(() => { setTab("list"); setEditingCourse(null); }, 700);
+    } catch (err) {
+      setEditStatus(`❌ ${err.message || "Save failed — please try again."}`);
+    }
+    setEditLoading(false);
   };
 
   // ── Generate flow ────────────────────────────────────────────────────────
@@ -191,9 +277,9 @@ export default function Admin({ onBack }) {
 
       <div style={{ maxWidth:740, margin:"30px auto", padding:"0 20px 60px" }}>
         <div style={{ display:"flex", gap:0, marginBottom:20, borderBottom:"1px solid #2D2D2D" }}>
-          {["list","generate"].map(t => (
-            <button key={t} onClick={()=>setTab(t)} style={{ background:"none", border:"none", borderBottom:tab===t?"2px solid #7C3AED":"2px solid transparent", color:tab===t?"#A78BFA":"#6B7280", cursor:"pointer", padding:"9px 18px", fontSize:13, fontWeight:tab===t?600:400 }}>
-              {t==="list" ? `📚 All Course Units (${courses.length})` : "✨ Add a Course Unit"}
+          {["list","generate", ...(tab==="edit" ? ["edit"] : [])].map(t => (
+            <button key={t} onClick={()=>{ if (t!=="edit") setTab(t); }} style={{ background:"none", border:"none", borderBottom:tab===t?"2px solid #7C3AED":"2px solid transparent", color:tab===t?"#A78BFA":"#6B7280", cursor:t==="edit"?"default":"pointer", padding:"9px 18px", fontSize:13, fontWeight:tab===t?600:400 }}>
+              {t==="list" ? `📚 All Course Units (${courses.length})` : t==="generate" ? "✨ Add a Course Unit" : `✏️ Editing: ${editingCourse?.title || "…"}`}
             </button>
           ))}
         </div>
@@ -217,7 +303,10 @@ export default function Admin({ onBack }) {
                     {c.description && <div style={{ color:"#4B5563", fontSize:11, marginTop:3 }}>{c.description.slice(0,90)}…</div>}
                   </div>
                   {isMine && (
-                    <button onClick={()=>del(c.id)} style={{ background:"#991B1B", border:"none", borderRadius:7, padding:"6px 12px", color:"white", cursor:"pointer", fontSize:11, flexShrink:0 }}>Delete</button>
+                    <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+                      <button onClick={()=>startEdit(c.id)} style={{ background:"#374151", border:"none", borderRadius:7, padding:"6px 12px", color:"white", cursor:"pointer", fontSize:11 }}>Edit</button>
+                      <button onClick={()=>del(c.id)} style={{ background:"#991B1B", border:"none", borderRadius:7, padding:"6px 12px", color:"white", cursor:"pointer", fontSize:11 }}>Delete</button>
+                    </div>
                   )}
                 </div>
               );
@@ -316,6 +405,100 @@ export default function Admin({ onBack }) {
               </div>
             )}
           </div>
+        )}
+
+        {tab==="edit" && (
+          !editingCourse ? (
+            <p style={{ color:"#6B7280", textAlign:"center", marginTop:30 }}>{editStatus || "Loading course…"}</p>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+              <div style={{ background:"#1A1A2E", border:"1px solid #2D2D4A", borderRadius:14, padding:24 }}>
+                <h3 style={{ margin:"0 0 14px", fontSize:15, color:"#A78BFA" }}>Course details</h3>
+                <label style={{ fontSize:11, color:"#6B7280" }}>TITLE</label>
+                <input value={editingCourse.title} onChange={e=>updateField("title", e.target.value)}
+                  style={{ width:"100%", padding:"10px 13px", borderRadius:9, border:"1px solid #374151", background:"#111827", color:"white", fontSize:13, boxSizing:"border-box", marginBottom:12 }}/>
+                <label style={{ fontSize:11, color:"#6B7280" }}>DESCRIPTION</label>
+                <input value={editingCourse.description} onChange={e=>updateField("description", e.target.value)}
+                  style={{ width:"100%", padding:"10px 13px", borderRadius:9, border:"1px solid #374151", background:"#111827", color:"white", fontSize:13, boxSizing:"border-box", marginBottom:12 }}/>
+                <label style={{ fontSize:11, color:"#6B7280" }}>SUBJECT</label>
+                <input value={editingCourse.subject} onChange={e=>updateField("subject", e.target.value)}
+                  style={{ width:"100%", padding:"10px 13px", borderRadius:9, border:"1px solid #374151", background:"#111827", color:"white", fontSize:13, boxSizing:"border-box" }}/>
+              </div>
+
+              {editingCourse.modules.map((m, mi) => (
+                <div key={m.id || mi} style={{ background:"#1A1A2E", border:"1px solid #2D2D4A", borderRadius:14, padding:20 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
+                    <input value={m.icon} onChange={e=>updateModule(mi,"icon",e.target.value)}
+                      style={{ width:44, padding:"8px", borderRadius:8, border:"1px solid #374151", background:"#111827", color:"white", fontSize:16, textAlign:"center", boxSizing:"border-box" }}/>
+                    <input value={m.title} onChange={e=>updateModule(mi,"title",e.target.value)}
+                      style={{ flex:1, padding:"9px 13px", borderRadius:8, border:"1px solid #374151", background:"#111827", color:"white", fontSize:13, fontWeight:600, boxSizing:"border-box" }}/>
+                    <button onClick={()=>moveModule(mi,-1)} disabled={mi===0} title="Move up"
+                      style={{ background:"#374151", border:"none", borderRadius:7, width:28, height:28, color:mi===0?"#4B5563":"white", cursor:mi===0?"default":"pointer", fontSize:12 }}>↑</button>
+                    <button onClick={()=>moveModule(mi,1)} disabled={mi===editingCourse.modules.length-1} title="Move down"
+                      style={{ background:"#374151", border:"none", borderRadius:7, width:28, height:28, color:mi===editingCourse.modules.length-1?"#4B5563":"white", cursor:mi===editingCourse.modules.length-1?"default":"pointer", fontSize:12 }}>↓</button>
+                    <button onClick={()=>removeModule(mi)} title="Remove module"
+                      style={{ background:"#991B1B", border:"none", borderRadius:7, padding:"7px 11px", color:"white", cursor:"pointer", fontSize:11 }}>Remove</button>
+                  </div>
+
+                  {m.slides.map((s, si) => (
+                    <div key={si} style={{ background:"#111827", border:"1px solid #2D2D4A", borderRadius:10, padding:12, marginBottom:10 }}>
+                      <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                        <input value={s.title} onChange={e=>updateSlide(mi,si,"title",e.target.value)} placeholder="Slide title"
+                          style={{ flex:1, padding:"8px 11px", borderRadius:7, border:"1px solid #374151", background:"#0F172A", color:"white", fontSize:12, fontWeight:600, boxSizing:"border-box" }}/>
+                        <button onClick={()=>removeSlide(mi,si)} title="Remove slide"
+                          style={{ background:"#374151", border:"none", borderRadius:7, padding:"6px 10px", color:"#F87171", cursor:"pointer", fontSize:11, flexShrink:0 }}>✕</button>
+                      </div>
+                      <label style={{ fontSize:10, color:"#4B5563" }}>BULLETS (one per line)</label>
+                      <textarea value={s.bullets.join("\n")} onChange={e=>updateBullets(mi,si,e.target.value)} rows={Math.max(3, s.bullets.length)}
+                        style={{ width:"100%", padding:"8px 11px", borderRadius:7, border:"1px solid #374151", background:"#0F172A", color:"#D1D5DB", fontSize:11.5, boxSizing:"border-box", resize:"vertical" }}/>
+                    </div>
+                  ))}
+                  <button onClick={()=>addSlide(mi)}
+                    style={{ background:"none", border:"1px dashed #374151", borderRadius:8, padding:"8px 14px", color:"#7C3AED", cursor:"pointer", fontSize:11.5, width:"100%" }}>+ Add slide</button>
+
+                  <div style={{ marginTop:14, paddingTop:14, borderTop:"1px solid #2D2D4A" }}>
+                    <label style={{ fontSize:10, color:"#4B5563" }}>PRACTICAL TYPE</label>
+                    <select value={m.practicalType} onChange={e=>updateModule(mi,"practicalType",e.target.value)}
+                      style={{ width:"100%", padding:"8px 11px", borderRadius:7, border:"1px solid #374151", background:"#111827", color:"white", fontSize:12, boxSizing:"border-box", marginBottom:8 }}>
+                      <option value="none">None</option>
+                      <option value="code">Code demo</option>
+                      <option value="example">Worked example</option>
+                    </select>
+                    {m.practicalType === "code" && (
+                      <input value={m.practicalLanguage} onChange={e=>updateModule(mi,"practicalLanguage",e.target.value)} placeholder="Language, e.g. java"
+                        style={{ width:"100%", padding:"8px 11px", borderRadius:7, border:"1px solid #374151", background:"#111827", color:"white", fontSize:12, boxSizing:"border-box", marginBottom:8 }}/>
+                    )}
+                    {m.practicalType !== "none" && (
+                      <>
+                        <textarea value={m.practical} onChange={e=>updateModule(mi,"practical",e.target.value)} rows={5} placeholder="Code or worked example content"
+                          style={{ width:"100%", padding:"8px 11px", borderRadius:7, border:"1px solid #374151", background:"#0A0A0A", color:"#D4D4D4", fontSize:11.5, fontFamily:"'Fira Code',monospace", boxSizing:"border-box", marginBottom:8, resize:"vertical" }}/>
+                        <textarea value={m.practicalNote} onChange={e=>updateModule(mi,"practicalNote",e.target.value)} rows={2} placeholder="Short note explaining the practical"
+                          style={{ width:"100%", padding:"8px 11px", borderRadius:7, border:"1px solid #374151", background:"#111827", color:"white", fontSize:12, boxSizing:"border-box" }}/>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              <button onClick={addModule}
+                style={{ background:"none", border:"1px dashed #7C3AED", borderRadius:10, padding:"14px", color:"#A78BFA", cursor:"pointer", fontSize:13, fontWeight:600 }}>
+                + Add module
+              </button>
+
+              {editStatus && <p style={{ color: editStatus.startsWith("✅")?"#34D399":"#F87171", fontSize:12 }}>{editStatus}</p>}
+
+              <div style={{ display:"flex", gap:10, position:"sticky", bottom:0, background:"#0F0C29", padding:"14px 0" }}>
+                <button onClick={saveEdits} disabled={editLoading}
+                  style={{ flex:1, background:editLoading?"#374151":"linear-gradient(135deg,#7C3AED,#4F46E5)", border:"none", borderRadius:10, padding:"13px", color:"white", cursor:editLoading?"default":"pointer", fontSize:13, fontWeight:700 }}>
+                  {editLoading ? "Saving…" : "✅ Save Changes"}
+                </button>
+                <button onClick={()=>{ setTab("list"); setEditingCourse(null); }}
+                  style={{ background:"#1F2937", border:"1px solid #374151", borderRadius:10, padding:"13px 20px", color:"#9CA3AF", cursor:"pointer", fontSize:13 }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )
         )}
       </div>
     </div>

@@ -116,6 +116,12 @@ Deno.serve(async (req: Request) => {
       if (!title) return json({ error: "title required" }, 400);
       const id = data.id || slugify(title);
 
+      // If this course already exists, only its original creator may edit it.
+      const { data: existing } = await sb.from("courses").select("lecturer_id").eq("id", id).limit(1).maybeSingle();
+      if (existing && existing.lecturer_id !== lecturer.id) {
+        return json({ error: "You can only edit courses you created" }, 403);
+      }
+
       const { error: upsertErr } = await sb.from("courses").upsert({
         id,
         title,
