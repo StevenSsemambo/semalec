@@ -7,7 +7,7 @@ import Admin   from "./pages/Admin";
 export default function App() {
   const [page,        setPage]        = useState("landing"); // landing | join | lecture | admin
   const [studentName, setStudentName] = useState("");
-  const [courseId,    setCourseId]    = useState("tdit214");
+  const [courseId,    setCourseId]    = useState("");
 
   const join = (name, cid) => {
     setStudentName(name);

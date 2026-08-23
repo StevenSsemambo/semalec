@@ -4,12 +4,17 @@ import { getCourses } from "../api";
 export default function Join({ onJoin, onBack }) {
   const [name,     setName]     = useState("");
   const [courses,  setCourses]  = useState([]);
-  const [courseId, setCourseId] = useState("tdit214");
+  const [courseId, setCourseId] = useState("");
   const [loading,  setLoading]  = useState(true);
 
   useEffect(() => {
     getCourses()
-      .then(d => { setCourses(d.courses || []); setLoading(false); })
+      .then(d => {
+        const list = d.courses || [];
+        setCourses(list);
+        if (list.length) setCourseId(list[0].id);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   }, []);
 
@@ -48,12 +53,14 @@ export default function Join({ onJoin, onBack }) {
             style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:13, marginBottom:18, boxSizing:"border-box" }}>
             {loading
               ? <option value="">Loading courses…</option>
-              : courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)
+              : courses.length
+                ? courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)
+                : <option value="">No courses available yet</option>
             }
           </select>
 
-          <button onClick={()=>name.trim()&&onJoin(name.trim(),courseId)} disabled={!name.trim()}
-            style={{ width:"100%", padding:"13px", borderRadius:10, border:"none", background:name.trim()?"linear-gradient(135deg,#7C3AED,#4F46E5)":"#2D2757", color:name.trim()?"white":"#6B7280", fontSize:14, fontWeight:700, cursor:name.trim()?"pointer":"default" }}>
+          <button onClick={()=>name.trim()&&courseId&&onJoin(name.trim(),courseId)} disabled={!name.trim()||!courseId}
+            style={{ width:"100%", padding:"13px", borderRadius:10, border:"none", background:(name.trim()&&courseId)?"linear-gradient(135deg,#7C3AED,#4F46E5)":"#2D2757", color:(name.trim()&&courseId)?"white":"#6B7280", fontSize:14, fontWeight:700, cursor:(name.trim()&&courseId)?"pointer":"default" }}>
             Join Lecture →
           </button>
         </div>
