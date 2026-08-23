@@ -49,9 +49,12 @@ Rules:
   (business, marketing, accounting, history, law, science, etc). Use "none" only if a hands-on
   section genuinely doesn't fit that module.
 - Produce 3 to 7 modules depending on how much source material is given — don't pad if the source is thin.
-- Each module should have 2 to 4 slides, each slide with 3 to 6 bullets. Bullets are short summary
-  phrases — they are NOT the full explanation, SEMAI will teach around them live — keep them concise
-  (under 15 words each).
+- Each module should have 2 to 4 slides, each slide with 3 to 6 bullets. Each bullet must be a real,
+  self-contained piece of content, not a fragment — write it as "Key term or short phrase — one clear
+  sentence explaining or elaborating it" (use an em dash between the two parts). Someone should be able
+  to understand the point from the bullet alone, on screen, without hearing you speak — SEMAI will still
+  teach and expand around it live, but the slide itself must look like a real, informative lecture slide,
+  never a bare outline. Aim for roughly 10-22 words total per bullet.
 - The "practical" field must be plain text only — never wrap it in \`\`\`fences or HTML, regardless of practicalType.
 - Base everything strictly on the source material provided. If the source is a short description rather
   than a full syllabus, use your subject expertise to build out a sensible, well-sequenced module structure

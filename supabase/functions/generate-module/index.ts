@@ -36,8 +36,12 @@ Rules:
 - Use "code" only for programming/technical subjects where real source code genuinely helps. Use
   "example" for a worked example, mini case study, or practice scenario for non-programming subjects.
   Use "none" only if a hands-on section genuinely doesn't fit.
-- Produce 2 to 4 slides, each with 3 to 6 concise bullets (under 15 words each) — bullets are summary
-  phrases, not the full explanation; SEMAI will teach around them live.
+- Produce 2 to 4 slides, each with 3 to 6 bullets. Each bullet must be a real, self-contained piece of
+  content, not a fragment — write it as "Key term or short phrase — one clear sentence explaining or
+  elaborating it" (use an em dash between the two parts). Someone should be able to understand the point
+  from the bullet alone, on screen — SEMAI will still teach and expand around it live, but the slide
+  itself must look like a real, informative lecture slide, never a bare outline. Aim for roughly 10-22
+  words total per bullet.
 - The "practical" field must be plain text only — never wrapped in \`\`\`fences or HTML.
 - Base everything strictly on the module topic and source material given. Stay consistent with the
   course it belongs to.
