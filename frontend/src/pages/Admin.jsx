@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { getCourses, getCourse, deleteCourse, saveCourse, generateCourse, uploadCourseSource } from "../api";
+import { getCourses, getCourse, deleteCourse, saveCourse, generateCourse, generateModule, uploadCourseSource } from "../api";
 import { supabase, signUpLecturer, signInLecturer, signOutLecturer, getLecturerProfile } from "../supabaseClient";
 
 export default function Admin({ onBack }) {
@@ -24,6 +24,12 @@ export default function Admin({ onBack }) {
   const [editingCourse, setEditingCourse] = useState(null); // full course object being edited, or null
   const [editLoading, setEditLoading] = useState(false);
   const [editStatus, setEditStatus] = useState("");
+
+  // ── Add-module-via-AI state (within Edit mode) ──────────────────────────
+  const [showAddModule, setShowAddModule] = useState(false);
+  const [newModForm, setNewModForm] = useState({ moduleTitle:"", sourceText:"" });
+  const [newModLoading, setNewModLoading] = useState(false);
+  const [newModStatus, setNewModStatus] = useState("");
 
   // ── Auth session ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -73,6 +79,7 @@ export default function Admin({ onBack }) {
   // ── Edit flow ────────────────────────────────────────────────────────────
   const startEdit = async (id) => {
     setTab("edit"); setEditingCourse(null); setEditStatus("");
+    setShowAddModule(false); setNewModForm({ moduleTitle:"", sourceText:"" }); setNewModStatus("");
     try {
       const course = await getCourse(id);
       setEditingCourse(course);
@@ -89,10 +96,26 @@ export default function Admin({ onBack }) {
     return { ...c, modules };
   });
 
-  const addModule = () => setEditingCourse(c => ({
-    ...c,
-    modules: [...c.modules, { id: `module-${Date.now()}`, icon: "📘", title: "New module", slides: [{ title: "New slide", bullets: [""] }], practicalType: "none", practicalLanguage: "", practical: "", practicalNote: "" }],
-  }));
+  const generateAndAddModule = async () => {
+    if (!newModForm.moduleTitle.trim()) { setNewModStatus("❌ Give the new module a topic/title."); return; }
+    if (!newModForm.sourceText.trim()) { setNewModStatus("❌ Describe or paste what this module should cover."); return; }
+    setNewModLoading(true); setNewModStatus("");
+    try {
+      const module = await generateModule({
+        courseTitle: editingCourse.title,
+        subject: editingCourse.subject,
+        moduleTitle: newModForm.moduleTitle,
+        sourceText: newModForm.sourceText,
+      });
+      setEditingCourse(c => ({ ...c, modules: [...c.modules, module] }));
+      setNewModForm({ moduleTitle:"", sourceText:"" });
+      setShowAddModule(false);
+      setNewModStatus("");
+    } catch (err) {
+      setNewModStatus(`❌ ${err.message || "Generation failed — please try again."}`);
+    }
+    setNewModLoading(false);
+  };
 
   const removeModule = (mi) => {
     if (!confirm("Remove this module? This won't take effect until you save.")) return;
@@ -480,10 +503,40 @@ export default function Admin({ onBack }) {
                 </div>
               ))}
 
-              <button onClick={addModule}
-                style={{ background:"none", border:"1px dashed #7C3AED", borderRadius:10, padding:"14px", color:"#A78BFA", cursor:"pointer", fontSize:13, fontWeight:600 }}>
-                + Add module
-              </button>
+              {showAddModule ? (
+                <div style={{ background:"#1A1A2E", border:"1px solid #7C3AED", borderRadius:14, padding:20 }}>
+                  <h4 style={{ margin:"0 0 4px", fontSize:14, color:"#A78BFA" }}>✨ Add a new module</h4>
+                  <p style={{ color:"#6B7280", fontSize:11.5, margin:"0 0 14px" }}>
+                    Describe or paste what this module should cover — SEMAI designs the slides and a
+                    fitting hands-on exercise, same as when you first generated the course. You can
+                    still fine-tune everything by hand afterward.
+                  </p>
+                  <label style={{ fontSize:11, color:"#6B7280" }}>MODULE TOPIC / TITLE *</label>
+                  <input value={newModForm.moduleTitle} onChange={e=>setNewModForm(f=>({...f,moduleTitle:e.target.value}))}
+                    placeholder="e.g. Consumer Behaviour and Buying Decisions"
+                    style={{ width:"100%", padding:"10px 13px", borderRadius:9, border:"1px solid #374151", background:"#111827", color:"white", fontSize:13, boxSizing:"border-box", marginBottom:12 }}/>
+                  <label style={{ fontSize:11, color:"#6B7280" }}>DESCRIBE OR PASTE THE CONTENT *</label>
+                  <textarea value={newModForm.sourceText} onChange={e=>setNewModForm(f=>({...f,sourceText:e.target.value}))}
+                    rows={6} placeholder="Paste notes/an outline, or just describe the concepts this module should teach…"
+                    style={{ width:"100%", padding:"10px 13px", borderRadius:9, border:"1px solid #374151", background:"#111827", color:"white", fontSize:13, boxSizing:"border-box", resize:"vertical", marginBottom:12 }}/>
+                  {newModStatus && <p style={{ color:"#F87171", fontSize:12, marginBottom:10 }}>{newModStatus}</p>}
+                  <div style={{ display:"flex", gap:10 }}>
+                    <button onClick={generateAndAddModule} disabled={newModLoading}
+                      style={{ flex:1, background:newModLoading?"#374151":"linear-gradient(135deg,#7C3AED,#4F46E5)", border:"none", borderRadius:9, padding:"11px", color:"white", cursor:newModLoading?"default":"pointer", fontSize:13, fontWeight:700 }}>
+                      {newModLoading ? "SEMAI is designing this module…" : "✨ Generate & Add Module"}
+                    </button>
+                    <button onClick={()=>{ setShowAddModule(false); setNewModStatus(""); }} disabled={newModLoading}
+                      style={{ background:"#1F2937", border:"1px solid #374151", borderRadius:9, padding:"11px 18px", color:"#9CA3AF", cursor:"pointer", fontSize:13 }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={()=>setShowAddModule(true)}
+                  style={{ background:"none", border:"1px dashed #7C3AED", borderRadius:10, padding:"14px", color:"#A78BFA", cursor:"pointer", fontSize:13, fontWeight:600 }}>
+                  + Add module
+                </button>
+              )}
 
               {editStatus && <p style={{ color: editStatus.startsWith("✅")?"#34D399":"#F87171", fontSize:12 }}>{editStatus}</p>}
 

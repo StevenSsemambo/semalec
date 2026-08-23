@@ -65,3 +65,11 @@ export async function uploadCourseSource(file) {
   const result = await supabase.functions.invoke("generate-upload", { body: form });
   return unwrap(result); // { text: "extracted text..." }
 }
+
+// ── AI single-module generation (adding a module to an existing course) ────
+export async function generateModule({ courseTitle, subject, moduleTitle, sourceText }) {
+  const result = await supabase.functions.invoke("generate-module", {
+    body: { courseTitle, subject, moduleTitle, sourceText },
+  });
+  return unwrap(result); // single module object { id, icon, title, slides, practicalType, ... }
+}
