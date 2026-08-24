@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 const LANG_EXT = { java:"java", python:"py", javascript:"js", typescript:"ts", sql:"sql", cpp:"cpp", c:"c", csharp:"cs", php:"php", ruby:"rb" };
 
@@ -16,8 +16,17 @@ function hl(code, language) {
 
 // Renders whichever practical section fits the subject: a real code editor for programming
 // modules, a worked-example reading panel for everything else, or a friendly empty state.
-export default function IDEScreen({ type = "code", language = "java", content = "", note = "", modTitle = "", courseTag = "" }) {
+// When `steps` + `activeStepIndex` are provided, progressively highlights the portion SEMAI is
+// currently narrating and dims what hasn't been reached yet — a real live walkthrough feel
+// instead of a static dump of the whole thing at once.
+export default function IDEScreen({ type = "code", language = "java", content = "", note = "", modTitle = "", courseTag = "", steps = null, activeStepIndex = -1 }) {
   const [copied, setCopied] = useState(false);
+  const activeRef = useRef(null);
+  const activeStep = steps && activeStepIndex >= 0 ? steps[activeStepIndex] : null;
+
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ behavior:"smooth", block:"center" });
+  }, [activeStepIndex]);
 
   if (!content || type === "none") {
     return (
@@ -28,7 +37,28 @@ export default function IDEScreen({ type = "code", language = "java", content = 
     );
   }
 
+  const StepDots = () => steps && steps.length > 1 ? (
+    <div style={{ display:"flex", gap:5 }}>
+      {steps.map((_, i) => (
+        <div key={i} style={{ width: i===activeStepIndex ? 16 : 5, height:5, borderRadius:3, background: i===activeStepIndex ? "linear-gradient(90deg,#F0B429,#7C3AED)" : i < activeStepIndex ? "rgba(167,139,250,0.55)" : "rgba(255,255,255,0.14)", transition:"width 0.25s" }}/>
+      ))}
+    </div>
+  ) : null;
+
   if (type === "example") {
+    // Split content around the active step's verbatim snippet so we can dim what SEMAI
+    // hasn't narrated yet and spotlight what's being explained right now.
+    let before = content, mid = "", after = "";
+    if (activeStep?.snippet) {
+      const idx = content.indexOf(activeStep.snippet);
+      if (idx !== -1) {
+        before = content.slice(0, idx);
+        mid = content.slice(idx, idx + activeStep.snippet.length);
+        after = content.slice(idx + activeStep.snippet.length);
+      }
+    }
+    const walkthroughActive = !!steps;
+
     return (
       <div style={{ width:"100%", height:"100%", background:"linear-gradient(145deg,#0F0C29,#1A1540,#0D1B3E)", display:"flex", flexDirection:"column" }}>
         <div style={{ background:"linear-gradient(90deg,#7C3AED,#4338CA)", padding:"18px 32px", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
@@ -39,12 +69,21 @@ export default function IDEScreen({ type = "code", language = "java", content = 
               <div style={{ fontSize:20, fontWeight:800, color:"white", lineHeight:1 }}>Worked Example</div>
             </div>
           </div>
-          <span style={{ fontSize:10, color:"rgba(255,255,255,0.5)" }}>{courseTag}</span>
+          <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+            <StepDots/>
+            <span style={{ fontSize:10, color:"rgba(255,255,255,0.5)" }}>{courseTag}</span>
+          </div>
         </div>
         <div style={{ flex:1, overflowY:"auto", padding:"30px 40px" }}>
-          <p style={{ margin:0, fontSize:15, color:"#E2E8F0", lineHeight:1.9, whiteSpace:"pre-wrap" }}>{content}</p>
+          <p style={{ margin:0, fontSize:15, lineHeight:1.9, whiteSpace:"pre-wrap" }}>
+            <span style={{ color: walkthroughActive ? "rgba(226,232,240,0.32)" : "#E2E8F0" }}>{before}</span>
+            {mid && (
+              <span ref={activeRef} style={{ color:"#FFF9E8", background:"rgba(240,180,41,0.16)", borderRadius:4, padding:"2px 3px", boxShadow:"0 0 0 1px rgba(240,180,41,0.4)" }}>{mid}</span>
+            )}
+            <span style={{ color:"rgba(226,232,240,0.2)" }}>{after}</span>
+          </p>
         </div>
-        {note && (
+        {note && !steps && (
           <div style={{ padding:"12px 32px", background:"rgba(0,0,0,0.3)", fontSize:12.5, color:"#A78BFA", lineHeight:1.6, flexShrink:0 }}>
             💡 {note}
           </div>
@@ -70,6 +109,7 @@ export default function IDEScreen({ type = "code", language = "java", content = 
           <span>💻</span> {filename}
         </div>
         <div style={{ flex:1 }}/>
+        {steps && <div style={{ paddingRight:14 }}><StepDots/></div>}
         <span style={{ fontSize:10, color:"#555", padding:"0 8px" }}>{courseTag} — {modTitle}</span>
         <button onClick={()=>{navigator.clipboard?.writeText(content);setCopied(true);setTimeout(()=>setCopied(false),1500);}}
           style={{ background:"none", border:"none", padding:"0 16px", color:copied?"#4EC9B0":"#6B7280", cursor:"pointer", fontSize:11, height:"100%" }}>
@@ -77,15 +117,25 @@ export default function IDEScreen({ type = "code", language = "java", content = 
         </button>
       </div>
 
-      <div style={{ flex:1, display:"flex", overflow:"auto" }}>
-        <div style={{ padding:"14px 12px", textAlign:"right", color:"#5A5A5A", fontFamily:"monospace", fontSize:13, lineHeight:1.6, userSelect:"none", background:"#1E1E1E", flexShrink:0 }}>
-          {lines.map((_, i) => <div key={i}>{i+1}</div>)}
-        </div>
-        <pre style={{ flex:1, margin:0, padding:"14px 18px", fontFamily:"'Fira Code',monospace", fontSize:13, lineHeight:1.6, color:"#D4D4D4", whiteSpace:"pre" }}
-          dangerouslySetInnerHTML={{ __html: hl(content, language) }} />
+      <div style={{ flex:1, overflow:"auto" }}>
+        {lines.map((lineText, i) => {
+          const lineNo = i + 1;
+          const inActiveStep = activeStep && lineNo >= activeStep.startLine && lineNo <= activeStep.endLine;
+          const reached = !steps || !activeStep || lineNo <= activeStep.endLine;
+          return (
+            <div key={i} ref={inActiveStep && lineNo === activeStep.startLine ? activeRef : null}
+              style={{ display:"flex", background: inActiveStep ? "rgba(240,180,41,0.09)" : "transparent", borderLeft: inActiveStep ? "3px solid #F0B429" : "3px solid transparent", opacity: reached ? 1 : 0.22, transition:"opacity 0.3s" }}>
+              <div style={{ padding:"2px 12px", textAlign:"right", color:"#5A5A5A", fontFamily:"monospace", fontSize:13, lineHeight:1.6, userSelect:"none", flexShrink:0, minWidth:44 }}>
+                {lineNo}
+              </div>
+              <pre style={{ flex:1, margin:0, padding:"2px 18px 2px 0", fontFamily:"'Fira Code',monospace", fontSize:13, lineHeight:1.6, color:"#D4D4D4", whiteSpace:"pre" }}
+                dangerouslySetInnerHTML={{ __html: hl(lineText, language) || "&nbsp;" }} />
+            </div>
+          );
+        })}
       </div>
 
-      {note && (
+      {note && !steps && (
         <div style={{ background:"#252526", borderTop:"1px solid #333", padding:"10px 18px", fontSize:12, color:"#9CA3AF", lineHeight:1.6, flexShrink:0 }}>
           💡 {note}
         </div>

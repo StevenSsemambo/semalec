@@ -51,6 +51,14 @@ export async function explainSlide({ courseTitle, moduleTitle, studentName, slid
   return unwrap(result); // { explanation: "..." }
 }
 
+// ── Step-by-step live walkthrough of a module's code demo or worked example ─
+export async function explainPractical({ courseTitle, moduleTitle, studentName, practicalType, content, practicalNote }) {
+  const result = await supabase.functions.invoke("practical-walkthrough", {
+    body: { courseTitle, moduleTitle, studentName, practicalType, content, practicalNote },
+  });
+  return unwrap(result); // { steps: [{ startLine, endLine, snippet, narration }], closing }
+}
+
 // ── AI course generation (lecturer describes/pastes/uploads content) ───────
 export async function generateCourse({ title, lecturer, institution, sourceText }) {
   const result = await supabase.functions.invoke("generate-course", {

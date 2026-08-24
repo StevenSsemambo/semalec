@@ -31,7 +31,7 @@ function Btn({ icon, label, onClick, active, danger, disabled, badge }) {
 export default function Toolbar({
   micMuted, onToggleMic, audioOn, onToggleAudio,
   listening, onAskVoice, raisedHand, onRaiseHand,
-  screen, onNextSlide, onExplainCode,
+  screen, onNextSlide, onExplainCode, practicalType,
   loading, hasMod,
   chatOpen, onToggleChat, unread,
   onQuiz, onLeave,
@@ -61,7 +61,7 @@ export default function Toolbar({
             <Btn icon="🗣️" label={listening?"Listening…":"Ask SEMAI"} onClick={onAskVoice}  active={listening} disabled={micMuted}/>
             <Btn icon="✋" label={raisedHand?"Lower Hand":"Raise Hand"}  onClick={onRaiseHand} active={raisedHand}/>
             {screen==="slides" && <Btn icon="▶" label="Next Slide"    onClick={onNextSlide}   disabled={loading||!hasMod}/>}
-            {screen==="ide"    && <Btn icon="📋" label="Explain Code"  onClick={onExplainCode} disabled={loading||!hasMod}/>}
+            {screen==="ide"    && <Btn icon="📋" label={practicalType==="code" ? "Explain Code" : "Explain Again"}  onClick={onExplainCode} disabled={loading||!hasMod}/>}
             <Btn icon="🧠" label="Quiz Me"  onClick={onQuiz}       disabled={loading||!hasMod}/>
             <Btn icon="💬" label="Q&A Chat" onClick={onToggleChat}  active={chatOpen} badge={unread}/>
           </div>

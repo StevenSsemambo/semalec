@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { sendChat, explainSlide } from "../api";
+import { sendChat, explainSlide, explainPractical } from "../api";
 
 export function useSEMAI({ courseId, studentName, speak }) {
   const [messages, setMessages] = useState([]);
@@ -19,6 +19,20 @@ export function useSEMAI({ courseId, studentName, speak }) {
     }
   }, [studentName, speak]);
 
+  // Fetches a step-by-step live walkthrough of a module's code demo or worked example.
+  // Returns { steps, closing } or null on failure — sequencing/narration is driven by the caller.
+  const teachPractical = useCallback(async ({ courseTitle, moduleTitle, practicalType, content, practicalNote }) => {
+    setPreparing(true);
+    try {
+      const data = await explainPractical({ courseTitle, moduleTitle, studentName, practicalType, content, practicalNote });
+      return data;
+    } catch {
+      return null;
+    } finally {
+      setPreparing(false);
+    }
+  }, [studentName]);
+
   const ask = useCallback(async (userText, context = "", onReply) => {
     if (!userText.trim() || loading) return;
 
@@ -29,7 +43,7 @@ export function useSEMAI({ courseId, studentName, speak }) {
     try {
       const data = await sendChat({
         messages:    [...messages, userMsg],
-        courseId:    courseId || "tdit214",
+        courseId:    courseId || "",
         studentName: studentName || "Student",
         context,
       });
@@ -50,5 +64,5 @@ export function useSEMAI({ courseId, studentName, speak }) {
 
   const clearMessages = () => setMessages([]);
 
-  return { ask, messages, loading, clearMessages, teachSlide, preparing };
+  return { ask, messages, loading, clearMessages, teachSlide, teachPractical, preparing };
 }

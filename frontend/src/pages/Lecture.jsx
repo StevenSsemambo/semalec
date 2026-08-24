@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getCourse } from "../api";
 import { useVoice } from "../hooks/useVoice";
 import { useSEMAI } from "../hooks/useSEMAI";
@@ -8,6 +8,12 @@ import ChatPanel   from "../components/ChatPanel";
 import Toolbar     from "../components/Toolbar";
 
 const fmt = s => `${String(Math.floor(s/3600)).padStart(2,"0")}:${String(Math.floor((s%3600)/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+
+const CONTINUE_PROMPTS = {
+  slide:  ["Any questions on that, or shall we move on?", "Does that make sense so far? I'll continue shortly if not.", "All clear? We'll carry on in a moment unless you'd like to ask something."],
+  step:   ["Following so far? I'll continue in a moment.", "Any questions before we move to the next part?", "Make sense? We'll carry on shortly."],
+  moduleEnd: ["Would you like to explore another module, or do you have questions first?", "Any final questions, or shall we head back to the module menu?"],
+};
 
 export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
   const [course,   setCourse]   = useState(null);
@@ -21,6 +27,18 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
   const [raisedHand,setRaisedHand]=useState(false);
   const [handMsg,  setHandMsg]  = useState("");
   const [drawerOpen,setDrawerOpen]=useState(false);
+
+  // Live step-by-step practical walkthrough state (rendering only — control flow below
+  // threads the actual steps/closing through function params to avoid stale-state races).
+  const [practicalSteps,   setPracticalSteps]   = useState(null);
+  const [activeStepIdx,    setActiveStepIdx]    = useState(-1);
+  const [practicalClosing, setPracticalClosing] = useState("");
+
+  // "Any questions, or shall we continue?" auto-advance window.
+  const [awaitingContinue, setAwaitingContinue] = useState(false);
+  const advanceTimerRef  = useRef(null);
+  const pendingAdvanceRef= useRef(null);
+  const pendingVariantRef= useRef("slide");
 
   const voice = useVoice();
   const semai = useSEMAI({ courseId, studentName, speak: voice.speak });
@@ -45,69 +63,180 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
     }
   }, [semai.messages]);
 
+  // Clean up any pending auto-advance timer on unmount
+  useEffect(() => () => { if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current); }, []);
+
   // ── Intro on mount ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!course) return;
-    const intro = `Hello ${studentName}, and welcome! I am SEMAI, your AI lecturer for ${course.title}, created by Steven Ssemambo of SayMyTech Developers. I am here to guide you through this course from start to finish. I will begin with the theory slides, then switch to the live code editor so we can practise together. You can ask me anything at any time by typing or speaking. Let us begin, class!`;
+    const intro = `Hello ${studentName}, and welcome! I am SEMAI, your AI lecturer for ${course.title}, created by Steven Ssemambo of SayMyTech Developers. I am here to guide you through this course from start to finish. I will begin with the theory slides, then we will work through the hands-on practice together, step by step. You can ask me anything at any time by typing or speaking. Let us begin, class!`;
     setTimeout(() => {
       voice.speak(intro, () => setScreen("menu"));
     }, 600);
     setScreen("welcome");
   }, [course]);
 
-  // ── Start module ──────────────────────────────────────────────────────────
-  const startMod = useCallback((m) => {
-    setMod(m); setSlideIdx(0); setScreen("slides"); setDrawerOpen(false);
-    const firstSlide = m.slides[0];
-    voice.speak(`Excellent choice! Let us begin with ${m.title}.`, () => {
-      if (firstSlide) {
-        semai.teachSlide({
-          courseTitle: course?.title, moduleTitle: m.title,
-          slideTitle: firstSlide.title, bullets: firstSlide.bullets,
+  // ── "Any questions, or shall we continue?" window ───────────────────────────
+  // onAdvance fires automatically after a short wait unless the student says something
+  // that isn't a "continue" cue, in which case SEMAI answers and re-offers the same choice.
+  function clearContinueWindow() {
+    if (advanceTimerRef.current) { clearTimeout(advanceTimerRef.current); advanceTimerRef.current = null; }
+    pendingAdvanceRef.current = null;
+    setAwaitingContinue(false);
+  }
+
+  function beginContinueWindow(onAdvance, variant = "slide") {
+    pendingAdvanceRef.current = onAdvance;
+    pendingVariantRef.current = variant;
+    setAwaitingContinue(true);
+    const prompts = CONTINUE_PROMPTS[variant] || CONTINUE_PROMPTS.slide;
+    const prompt = prompts[Math.floor(Math.random() * prompts.length)];
+    voice.speak(prompt, () => {
+      if (pendingAdvanceRef.current !== onAdvance) return; // superseded while the prompt was speaking
+      advanceTimerRef.current = setTimeout(() => {
+        if (pendingAdvanceRef.current === onAdvance) { clearContinueWindow(); onAdvance(); }
+      }, 14000);
+      voice.startListening((text) => {
+        if (pendingAdvanceRef.current !== onAdvance) return;
+        if (advanceTimerRef.current) { clearTimeout(advanceTimerRef.current); advanceTimerRef.current = null; }
+        const t = text.toLowerCase();
+        const wantsContinue = /\b(next|continue|move on|go on|proceed|no questions?|i'?m good|let'?s go|carry on|sounds good)\b/.test(t);
+        if (wantsContinue) { clearContinueWindow(); onAdvance(); }
+        else { handleAskSemai(text); } // answers, then re-offers the same choice (see askSemai below)
+      }, { silent: true });
+    });
+  }
+
+  // ── Ask SEMAI (chat + voice share this) ─────────────────────────────────────
+  const askSemai = (text, onReply) => {
+    const ctx = mod ? `Currently on: ${mod.title}, slide ${slideIdx+1}: ${mod.slides[slideIdx]?.title || "hands-on practice"}.` : "";
+    semai.ask(text, ctx, onReply);
+    if (!chatOpen) setUnread(0);
+  };
+
+  // If a continue-window is open when the student asks something, cancel the pending
+  // auto-advance, answer, then re-offer the same choice once SEMAI's reply finishes.
+  function handleAskSemai(text) {
+    const pending = pendingAdvanceRef.current;
+    const variant = pendingVariantRef.current;
+    if (pending) {
+      clearContinueWindow();
+      askSemai(text, () => beginContinueWindow(pending, variant));
+    } else {
+      askSemai(text);
+    }
+  }
+
+  // ── Slide walkthrough ────────────────────────────────────────────────────────
+  function speakAndAdvanceSlide(targetMod, idx) {
+    setSlideIdx(idx);
+    const s = targetMod.slides[idx];
+    semai.teachSlide({
+      courseTitle: course?.title, moduleTitle: targetMod.title,
+      slideTitle: s.title, bullets: s.bullets,
+    }, () => {
+      beginContinueWindow(() => {
+        if (idx + 1 < targetMod.slides.length) speakAndAdvanceSlide(targetMod, idx + 1);
+        else finishSlidesGoToPractical(targetMod);
+      }, "slide");
+    });
+  }
+
+  function finishSlidesGoToPractical(targetMod) {
+    if (targetMod.practicalType === "none" || !targetMod.practical) {
+      voice.speak(`Well done — that covers everything for ${targetMod.title}!`, () => {
+        beginContinueWindow(() => { setScreen("menu"); setMod(null); }, "moduleEnd");
+      });
+      return;
+    }
+    setScreen("ide");
+    const line = targetMod.practicalType === "code"
+      ? "Well done! You've covered all the theory for this module. I'm now switching to the live code editor — watch closely as we walk through it together, step by step."
+      : "Well done! You've covered all the theory for this module. Let's now work through a worked example together, step by step.";
+    voice.speak(line, () => beginPracticalWalkthrough(targetMod));
+  }
+
+  // ── Practical (code / worked-example) walkthrough ───────────────────────────
+  function beginPracticalWalkthrough(targetMod) {
+    setActiveStepIdx(-1); setPracticalSteps(null);
+    semai.teachPractical({
+      courseTitle: course?.title, moduleTitle: targetMod.title,
+      practicalType: targetMod.practicalType, content: targetMod.practical, practicalNote: targetMod.practicalNote,
+    }).then(data => {
+      if (!data || !data.steps?.length) {
+        voice.speak(targetMod.practicalNote || "Let's take a look at this together.");
+        return;
+      }
+      setPracticalSteps(data.steps);
+      setPracticalClosing(data.closing || "");
+      walkStep(targetMod, data.steps, data.closing, 0);
+    });
+  }
+
+  function walkStep(targetMod, steps, closing, idx) {
+    setActiveStepIdx(idx);
+    voice.speak(steps[idx].narration, () => {
+      if (idx + 1 < steps.length) {
+        beginContinueWindow(() => walkStep(targetMod, steps, closing, idx + 1), "step");
+      } else {
+        voice.speak(closing || "That's the walkthrough — well done!", () => {
+          beginContinueWindow(() => { setScreen("menu"); setMod(null); setPracticalSteps(null); setActiveStepIdx(-1); }, "moduleEnd");
         });
       }
     });
-  }, [voice, semai, course]);
+  }
 
-  // ── Slide navigation ──────────────────────────────────────────────────────
-  const nextSlide = useCallback(() => {
+  // ── Start module ──────────────────────────────────────────────────────────
+  const startMod = (m) => {
+    clearContinueWindow();
+    setMod(m); setSlideIdx(0); setScreen("slides"); setDrawerOpen(false);
+    setPracticalSteps(null); setActiveStepIdx(-1);
+    const firstSlide = m.slides[0];
+    voice.speak(`Excellent choice! Let's begin with ${m.title}.`, () => {
+      if (firstSlide) speakAndAdvanceSlide(m, 0);
+      else finishSlidesGoToPractical(m);
+    });
+  };
+
+  // ── Manual navigation (overrides / cancels any pending auto-advance) ────────
+  const handleManualNext = () => {
+    clearContinueWindow();
     if (!mod) return;
-    const next = slideIdx + 1;
-    if (next < mod.slides.length) {
-      setSlideIdx(next);
-      const s = mod.slides[next];
-      semai.teachSlide({
-        courseTitle: course?.title, moduleTitle: mod.title,
-        slideTitle: s.title, bullets: s.bullets,
-      });
-    } else {
-      setScreen("ide");
-      voice.speak(`Well done, class! You have covered all the slides for ${mod.title}. I am now switching to the live code editor. Watch the screen carefully as I walk you through the code.`);
-    }
-  }, [mod, slideIdx, voice, semai, course]);
+    if (slideIdx + 1 < mod.slides.length) speakAndAdvanceSlide(mod, slideIdx + 1);
+    else finishSlidesGoToPractical(mod);
+  };
 
-  const prevSlide = () => { if (slideIdx > 0) setSlideIdx(s => s-1); };
+  const prevSlide = () => { clearContinueWindow(); if (slideIdx > 0) setSlideIdx(s => s-1); };
+
+  const handleManualNextStep = () => {
+    clearContinueWindow();
+    if (!practicalSteps || !mod) return;
+    if (activeStepIdx + 1 < practicalSteps.length) walkStep(mod, practicalSteps, practicalClosing, activeStepIdx + 1);
+    else { setScreen("menu"); setMod(null); setPracticalSteps(null); setActiveStepIdx(-1); }
+  };
 
   const goIDE = () => {
+    clearContinueWindow();
+    if (!mod) return;
     setScreen("ide");
-    voice.speak("I am switching to the code editor now. Follow each line as I explain it.");
+    const line = mod.practicalType === "code" ? "Let's jump into the code together." : "Let's jump into the worked example together.";
+    voice.speak(line, () => beginPracticalWalkthrough(mod));
   };
 
   const goSlides = () => {
-    setSlideIdx(0); setScreen("slides");
-    voice.speak(`Let us go back to the slides for ${mod?.title}.`);
+    clearContinueWindow();
+    setSlideIdx(0); setScreen("slides"); setPracticalSteps(null); setActiveStepIdx(-1);
+    voice.speak(`Let's go back to the slides for ${mod?.title}.`);
   };
 
-  // ── Ask SEMAI ─────────────────────────────────────────────────────────────
-  const askSemai = useCallback((text) => {
-    const ctx = mod ? `Currently on: ${mod.title}, slide ${slideIdx+1}: ${mod.slides[slideIdx]?.title || "code demo"}.` : "";
-    semai.ask(text, ctx);
-    if (!chatOpen) setUnread(0);
-  }, [semai, mod, slideIdx, chatOpen]);
+  const allModules = () => {
+    clearContinueWindow();
+    setScreen("menu"); setMod(null); setPracticalSteps(null); setActiveStepIdx(-1);
+  };
 
   // ── Voice ask ─────────────────────────────────────────────────────────────
   const handleVoiceAsk = () => {
-    voice.startListening(text => askSemai(text));
+    voice.startListening(text => handleAskSemai(text));
   };
 
   // ── Raise hand ────────────────────────────────────────────────────────────
@@ -118,9 +247,13 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
 
   // ── Quiz ──────────────────────────────────────────────────────────────────
   const quiz = () => {
+    clearContinueWindow();
     setChatOpen(true); setUnread(0);
-    askSemai(`Give me a short quiz question about ${mod?.title || "Java"} based on what we have covered so far.`);
+    handleAskSemai(`Give me a short quiz question about ${mod?.title || "this module"} based on what we have covered so far.`);
   };
+
+  const practicalLabel = mod?.practicalType === "code" ? "Code Editor" : mod?.practicalType === "example" ? "Worked Example" : "Hands-on";
+  const practicalIcon  = mod?.practicalType === "code" ? "📂" : "📘";
 
   if (!course) return (
     <div style={{ minHeight:"100vh", background:"#0F0C29", display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontFamily:"system-ui" }}>
@@ -151,7 +284,7 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
           <span style={{ fontWeight:700, fontSize:13 }}>SEMAI — {course.title}</span>
           {mod && <span style={{ background:"#312E81", border:"1px solid #4338CA", borderRadius:20, padding:"1px 10px", fontSize:10, color:"#A5B4FC" }}>{mod.icon} {mod.title}</span>}
           {screen==="slides" && mod && <span style={{ fontSize:10, color:"#4B5563" }}>Slide {slideIdx+1}/{mod.slides.length}</span>}
-          {screen==="ide"    && <span style={{ fontSize:10, color:"#4B5563" }}>📂 Code Editor</span>}
+          {screen==="ide"    && <span style={{ fontSize:10, color:"#4B5563" }}>{practicalIcon} {practicalLabel}{practicalSteps ? ` · Step ${Math.max(activeStepIdx+1,1)}/${practicalSteps.length}` : ""}</span>}
         </div>
         <span style={{ color:"#4B5563", fontSize:12, fontFamily:"monospace", position:"absolute", left:"50%", transform:"translateX(-50%)" }}>{fmt(secs)}</span>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -225,7 +358,7 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
               <div style={{ width:"100%", height:"100%", background:"#111", overflowY:"auto", display:"flex", flexDirection:"column", alignItems:"center", padding:"28px 20px", gap:16 }}>
                 <div style={{ textAlign:"center" }}>
                   <h3 style={{ color:"white", fontSize:16, fontWeight:700, margin:"0 0 4px" }}>Choose a module to begin</h3>
-                  <p style={{ color:"#6B7280", fontSize:12, margin:0 }}>SEMAI will guide you through slides then live code</p>
+                  <p style={{ color:"#6B7280", fontSize:12, margin:0 }}>SEMAI will guide you through slides, then hands-on practice together</p>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12, width:"100%", maxWidth:680 }}>
                   {(course.modules || []).map(m => (
@@ -234,7 +367,7 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
                       <div style={{ fontSize:26, marginBottom:10 }}>{m.icon}</div>
                       <div style={{ fontSize:13, fontWeight:600, color:"#E2E8F0", marginBottom:4 }}>{m.title}</div>
                       {m.hours && <div style={{ fontSize:10, color:"#4B5563", marginBottom:4 }}>{m.hours}</div>}
-                      <div style={{ fontSize:10, color:"#374151" }}>{(m.slides||[]).length} slides + live code</div>
+                      <div style={{ fontSize:10, color:"#374151" }}>{(m.slides||[]).length} slides{m.practicalType!=="none" ? " + hands-on practice" : ""}</div>
                     </button>
                   ))}
                 </div>
@@ -242,7 +375,7 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
             )}
 
             {screen==="slides" && mod && <SlideScreen slide={mod.slides[slideIdx]} mod={mod} idx={slideIdx} total={mod.slides.length}/>}
-            {screen==="ide"    && mod && <IDEScreen type={mod.practicalType} language={mod.practicalLanguage} content={mod.practical} note={mod.practicalNote} modTitle={mod.title} courseTag={course.id?.toUpperCase()}/>}
+            {screen==="ide"    && mod && <IDEScreen type={mod.practicalType} language={mod.practicalLanguage} content={mod.practical} note={mod.practicalNote} modTitle={mod.title} courseTag={course.id?.toUpperCase()} steps={practicalSteps} activeStepIndex={activeStepIdx}/>}
           </div>
 
           {/* Slide / IDE nav */}
@@ -252,7 +385,7 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
                 {screen==="slides" && <>
                   <button onClick={prevSlide} disabled={slideIdx===0 || semai.preparing}
                     style={{ background:"#2D2D2D", border:"none", borderRadius:7, padding:"6px 14px", color:"white", cursor:(slideIdx===0||semai.preparing)?"default":"pointer", fontSize:12, opacity:(slideIdx===0||semai.preparing)?0.35:1 }}>← Prev</button>
-                  <button onClick={nextSlide} disabled={semai.preparing}
+                  <button onClick={handleManualNext} disabled={semai.preparing}
                     style={{ background:"#7C3AED", border:"none", borderRadius:7, padding:"6px 14px", color:"white", cursor:semai.preparing?"default":"pointer", fontSize:12, fontWeight:600, opacity:semai.preparing?0.6:1 }}>
                     {semai.preparing ? "Teaching…" : slideIdx < mod.slides.length-1 ? "Next Slide →" : (mod.practicalType === "code" ? "Open Code Editor →" : mod.practicalType === "example" ? "Open Worked Example →" : "Finish Module ✓")}
                   </button>
@@ -262,14 +395,22 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
                   )}
                 </>}
                 {screen==="ide" && (
-                  <button onClick={goSlides}
-                    style={{ background:"#2D2D2D", border:"none", borderRadius:7, padding:"6px 14px", color:"white", cursor:"pointer", fontSize:12 }}>← Back to Slides</button>
+                  <>
+                    <button onClick={goSlides}
+                      style={{ background:"#2D2D2D", border:"none", borderRadius:7, padding:"6px 14px", color:"white", cursor:"pointer", fontSize:12 }}>← Back to Slides</button>
+                    {practicalSteps && (
+                      <button onClick={handleManualNextStep} disabled={semai.preparing}
+                        style={{ background:"#7C3AED", border:"none", borderRadius:7, padding:"6px 14px", color:"white", cursor:semai.preparing?"default":"pointer", fontSize:12, fontWeight:600, opacity:semai.preparing?0.6:1 }}>
+                        {activeStepIdx < practicalSteps.length-1 ? "Next Step →" : "Finish Module ✓"}
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
               <div style={{ display:"flex", gap:6 }}>
                 <button onClick={()=>{ setChatOpen(true); setUnread(0); }}
                   style={{ background:"#1F2937", border:"1px solid #374151", borderRadius:7, padding:"6px 14px", color:"#9CA3AF", cursor:"pointer", fontSize:12 }}>💬 Q&A</button>
-                <button onClick={()=>{ setScreen("menu"); setMod(null); }}
+                <button onClick={allModules}
                   style={{ background:"#1F2937", border:"1px solid #374151", borderRadius:7, padding:"6px 14px", color:"#9CA3AF", cursor:"pointer", fontSize:12 }}>All Modules</button>
               </div>
             </div>
@@ -281,7 +422,7 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
           <ChatPanel
             messages={semai.messages}
             input={chatInput} setInput={setChatInput}
-            onSend={askSemai}
+            onSend={handleAskSemai}
             onClose={()=>{ setChatOpen(false); setUnread(0); }}
             loading={semai.loading}
             studentName={studentName}
@@ -294,6 +435,14 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
         <div style={{ position:"fixed", bottom:toolbarHeight()+8, left:"50%", transform:"translateX(-50%)", background:"rgba(9,9,20,0.92)", border:"1px solid #7C3AED", borderRadius:12, padding:"10px 20px", zIndex:50, display:"flex", alignItems:"center", gap:10, pointerEvents:"none" }}>
           <div style={{ width:14, height:14, borderRadius:"50%", border:"2px solid #7C3AED", borderTopColor:"transparent", animation:"spin 0.8s linear infinite" }}/>
           <span style={{ fontSize:12.5, color:"#A78BFA", fontStyle:"italic" }}>SEMAI is preparing the explanation…</span>
+        </div>
+      )}
+
+      {/* Awaiting-continue indicator — shown during the "any questions?" auto-advance window */}
+      {awaitingContinue && !voice.speaking && !semai.preparing && (
+        <div style={{ position:"fixed", bottom:toolbarHeight()+8, left:"50%", transform:"translateX(-50%)", background:"rgba(9,9,20,0.92)", border:"1px solid rgba(240,180,41,0.5)", borderRadius:12, padding:"10px 20px", zIndex:50, display:"flex", alignItems:"center", gap:10, pointerEvents:"none" }}>
+          <span style={{ fontSize:14 }}>⏳</span>
+          <span style={{ fontSize:12.5, color:"#F0B429" }}>Ask a question anytime — otherwise I'll continue in a moment…</span>
         </div>
       )}
 
@@ -320,8 +469,12 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
         listening={voice.listening}  onAskVoice={handleVoiceAsk}
         raisedHand={raisedHand}      onRaiseHand={toggleHand}
         screen={screen}
-        onNextSlide={nextSlide}
-        onExplainCode={()=>mod&&voice.speak(mod.practicalNote||"Let us walk through this together.")}
+        onNextSlide={handleManualNext}
+        practicalType={mod?.practicalType}
+        onExplainCode={()=>{
+          if (practicalSteps && activeStepIdx >= 0 && practicalSteps[activeStepIdx]) voice.speak(practicalSteps[activeStepIdx].narration);
+          else voice.speak(mod?.practicalNote || "Let's walk through this together.");
+        }}
         loading={semai.loading || semai.preparing} hasMod={!!mod}
         chatOpen={chatOpen}          onToggleChat={()=>{ setChatOpen(o=>!o); setUnread(0); }}
         unread={unread}
