@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getCourse } from "../api";
+import { recordProgress } from "../supabaseClient";
 import { useVoice } from "../hooks/useVoice";
 import { useSEMAI } from "../hooks/useSEMAI";
 import SlideScreen from "../components/SlideScreen";
@@ -15,7 +16,7 @@ const CONTINUE_PROMPTS = {
   moduleEnd: ["Would you like to explore another module, or do you have questions first?", "Any final questions, or shall we head back to the module menu?"],
 };
 
-export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
+export default function Lecture({ studentName, studentId, courseId, onLeave, onAdmin }) {
   const [course,   setCourse]   = useState(null);
   const [screen,   setScreen]   = useState("welcome"); // welcome | menu | slides | ide
   const [mod,      setMod]      = useState(null);
@@ -130,6 +131,7 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
   // ── Slide walkthrough ────────────────────────────────────────────────────────
   function speakAndAdvanceSlide(targetMod, idx) {
     setSlideIdx(idx);
+    recordProgress({ studentId, courseId, moduleId: targetMod.id, slideIndex: idx, completed: false });
     const s = targetMod.slides[idx];
     semai.teachSlide({
       courseTitle: course?.title, moduleTitle: targetMod.title,
@@ -144,6 +146,7 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
 
   function finishSlidesGoToPractical(targetMod) {
     if (targetMod.practicalType === "none" || !targetMod.practical) {
+      recordProgress({ studentId, courseId, moduleId: targetMod.id, slideIndex: targetMod.slides.length - 1, completed: true });
       voice.speak(`Well done — that covers everything for ${targetMod.title}!`, () => {
         beginContinueWindow(() => { setScreen("menu"); setMod(null); }, "moduleEnd");
       });
@@ -180,6 +183,7 @@ export default function Lecture({ studentName, courseId, onLeave, onAdmin }) {
         beginContinueWindow(() => walkStep(targetMod, steps, closing, idx + 1), "step");
       } else {
         voice.speak(closing || "That's the walkthrough — well done!", () => {
+          recordProgress({ studentId, courseId, moduleId: targetMod.id, slideIndex: targetMod.slides.length - 1, completed: true });
           beginContinueWindow(() => { setScreen("menu"); setMod(null); setPracticalSteps(null); setActiveStepIdx(-1); }, "moduleEnd");
         });
       }

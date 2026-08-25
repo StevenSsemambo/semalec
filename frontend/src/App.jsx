@@ -7,11 +7,13 @@ import Admin   from "./pages/Admin";
 export default function App() {
   const [page,        setPage]        = useState("landing"); // landing | join | lecture | admin
   const [studentName, setStudentName] = useState("");
+  const [studentId,   setStudentId]   = useState("");
   const [courseId,    setCourseId]    = useState("");
 
-  const join = (name, cid) => {
+  const join = (name, cid, sid) => {
     setStudentName(name);
     setCourseId(cid);
+    setStudentId(sid);
     setPage("lecture");
   };
 
@@ -35,6 +37,7 @@ export default function App() {
     return (
       <Lecture
         studentName={studentName}
+        studentId={studentId}
         courseId={courseId}
         onLeave={() => setPage("landing")}
         onAdmin={() => setPage("admin")}

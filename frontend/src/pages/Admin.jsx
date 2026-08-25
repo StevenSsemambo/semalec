@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getCourses, getCourse, deleteCourse, saveCourse, generateCourse, generateModule, uploadCourseSource, getInstitutions, resolveInstitution } from "../api";
-import { supabase, signUpLecturer, signInLecturer, signOutLecturer, getLecturerProfile } from "../supabaseClient";
+import { supabase, signUpLecturer, signInLecturer, signOutLecturer, getLecturerProfile, getCourseProgress } from "../supabaseClient";
 
 export default function Admin({ onBack }) {
   const [session, setSession] = useState(undefined); // undefined = loading, null = signed out
@@ -14,7 +14,23 @@ export default function Admin({ onBack }) {
   useEffect(() => { getInstitutions().then(setKnownInstitutions).catch(()=>{}); }, []);
 
   const [courses, setCourses] = useState([]);
-  const [tab, setTab] = useState("list"); // list | generate
+  const [tab, setTab] = useState("list"); // list | generate | edit | progress
+  const [progressCourseId, setProgressCourseId] = useState("");
+  const [progressRows, setProgressRows] = useState([]);
+  const [progressLoading, setProgressLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab !== "progress") return;
+    if (!progressCourseId && courses.length) setProgressCourseId(courses[0].id);
+  }, [tab, courses]);
+
+  useEffect(() => {
+    if (tab !== "progress" || !progressCourseId) return;
+    setProgressLoading(true);
+    getCourseProgress(progressCourseId)
+      .then(rows => { setProgressRows(rows); setProgressLoading(false); })
+      .catch(() => setProgressLoading(false));
+  }, [tab, progressCourseId]);
 
   const [genForm, setGenForm] = useState({ title:"", lecturer:"", institution:"", sourceText:"" });
   const [genStatus, setGenStatus] = useState("");
@@ -309,9 +325,9 @@ export default function Admin({ onBack }) {
 
       <div style={{ maxWidth:740, margin:"30px auto", padding:"0 20px 60px" }}>
         <div style={{ display:"flex", gap:0, marginBottom:20, borderBottom:"1px solid #2D2D2D" }}>
-          {["list","generate", ...(tab==="edit" ? ["edit"] : [])].map(t => (
+          {["list","generate","progress", ...(tab==="edit" ? ["edit"] : [])].map(t => (
             <button key={t} onClick={()=>{ if (t!=="edit") setTab(t); }} style={{ background:"none", border:"none", borderBottom:tab===t?"2px solid #7C3AED":"2px solid transparent", color:tab===t?"#A78BFA":"#6B7280", cursor:t==="edit"?"default":"pointer", padding:"9px 18px", fontSize:13, fontWeight:tab===t?600:400 }}>
-              {t==="list" ? `📚 All Course Units (${courses.length})` : t==="generate" ? "✨ Add a Course Unit" : `✏️ Editing: ${editingCourse?.title || "…"}`}
+              {t==="list" ? `📚 All Course Units (${courses.length})` : t==="generate" ? "✨ Add a Course Unit" : t==="progress" ? "📊 Student Progress" : `✏️ Editing: ${editingCourse?.title || "…"}`}
             </button>
           ))}
         </div>
@@ -561,6 +577,53 @@ export default function Admin({ onBack }) {
               </div>
             </div>
           )
+        )}
+
+        {tab==="progress" && (
+          <div>
+            <label style={{ fontSize:11, color:"#6B7280" }}>COURSE</label>
+            <select value={progressCourseId} onChange={e=>setProgressCourseId(e.target.value)}
+              style={{ display:"block", width:"100%", maxWidth:360, padding:"9px 12px", borderRadius:8, border:"1px solid #374151", background:"#111827", color:"white", fontSize:13, marginTop:4, marginBottom:20, boxSizing:"border-box" }}>
+              {courses.length ? courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>) : <option value="">No courses yet</option>}
+            </select>
+
+            {progressLoading ? (
+              <p style={{ color:"#6B7280" }}>Loading…</p>
+            ) : progressRows.length === 0 ? (
+              <p style={{ color:"#4B5563" }}>No students have started this course yet.</p>
+            ) : (
+              <div style={{ overflowX:"auto" }}>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12.5 }}>
+                  <thead>
+                    <tr style={{ textAlign:"left", color:"#6B7280", borderBottom:"1px solid #2D2D4A" }}>
+                      <th style={{ padding:"8px 12px" }}>Student</th>
+                      <th style={{ padding:"8px 12px" }}>Module</th>
+                      <th style={{ padding:"8px 12px" }}>Slide reached</th>
+                      <th style={{ padding:"8px 12px" }}>Status</th>
+                      <th style={{ padding:"8px 12px" }}>Last active</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...progressRows]
+                      .sort((a,b) => (a.profiles?.name||"").localeCompare(b.profiles?.name||"") || (a.modules?.position??0)-(b.modules?.position??0))
+                      .map((r, i) => (
+                        <tr key={i} style={{ borderBottom:"1px solid #1F2937", color:"#D1D5DB" }}>
+                          <td style={{ padding:"8px 12px" }}>{r.profiles?.name || "Unknown"}</td>
+                          <td style={{ padding:"8px 12px" }}>{r.modules?.title || "—"}</td>
+                          <td style={{ padding:"8px 12px" }}>{r.slide_index + 1}</td>
+                          <td style={{ padding:"8px 12px" }}>
+                            <span style={{ padding:"2px 9px", borderRadius:20, fontSize:11, background: r.completed ? "rgba(52,211,153,0.15)" : "rgba(240,180,41,0.15)", color: r.completed ? "#34D399" : "#F0B429" }}>
+                              {r.completed ? "Completed" : "In progress"}
+                            </span>
+                          </td>
+                          <td style={{ padding:"8px 12px", color:"#6B7280" }}>{new Date(r.updated_at).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

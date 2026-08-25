@@ -145,3 +145,47 @@ end;
 $$;
 
 revoke execute on function public.handle_new_user() from public, anon, authenticated;
+
+-- ── Student accounts + real progress tracking — added after multi-tenancy pass ─
+alter table public.profiles add column if not exists role text not null default 'lecturer' check (role in ('lecturer','student'));
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, name, institution, institution_id, role)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'name', new.email),
+    new.raw_user_meta_data->>'institution',
+    nullif(new.raw_user_meta_data->>'institution_id', '')::uuid,
+    coalesce(new.raw_user_meta_data->>'role', 'lecturer')
+  );
+  return new;
+end;
+$$;
+
+revoke execute on function public.handle_new_user() from public, anon, authenticated;
+
+alter table public.progress add column if not exists student_id uuid references auth.users(id) on delete cascade;
+
+create unique index if not exists progress_student_module_uniq
+  on public.progress(student_id, course_id, module_id) where student_id is not null;
+
+drop policy if exists "progress insert by anyone" on public.progress;
+drop policy if exists "progress select by anyone" on public.progress;
+drop policy if exists "progress update by anyone" on public.progress;
+
+create policy "students manage own progress" on public.progress
+  for all using (auth.uid() = student_id) with check (auth.uid() = student_id);
+
+create policy "lecturers view their course progress" on public.progress
+  for select using (
+    exists (
+      select 1 from public.courses c
+      where c.id = progress.course_id and c.lecturer_id = auth.uid()
+    )
+  );
