@@ -1,22 +1,40 @@
 import { useState, useEffect } from "react";
-import { getCourses } from "../api";
+import { getCourses, getInstitutions } from "../api";
 
 export default function Join({ onJoin, onBack }) {
   const [name,     setName]     = useState("");
+  const [institutions, setInstitutions] = useState([]);
+  const [institutionId, setInstitutionId] = useState("");
   const [courses,  setCourses]  = useState([]);
   const [courseId, setCourseId] = useState("");
-  const [loading,  setLoading]  = useState(true);
+  const [loadingInst, setLoadingInst] = useState(true);
+  const [loadingCourses, setLoadingCourses] = useState(false);
 
+  // Load the institution list once — a student picks their school first, so course
+  // listings stay scoped to that institution rather than showing every school's courses.
   useEffect(() => {
-    getCourses()
+    getInstitutions()
+      .then(list => {
+        setInstitutions(list);
+        if (list.length) setInstitutionId(list[0].id);
+        setLoadingInst(false);
+      })
+      .catch(() => setLoadingInst(false));
+  }, []);
+
+  // Reload courses whenever the selected institution changes.
+  useEffect(() => {
+    if (!institutionId) { setCourses([]); setCourseId(""); return; }
+    setLoadingCourses(true);
+    getCourses(institutionId)
       .then(d => {
         const list = d.courses || [];
         setCourses(list);
-        if (list.length) setCourseId(list[0].id);
-        setLoading(false);
+        setCourseId(list.length ? list[0].id : "");
+        setLoadingCourses(false);
       })
-      .catch(() => setLoading(false));
-  }, []);
+      .catch(() => setLoadingCourses(false));
+  }, [institutionId]);
 
   return (
     <div style={{ minHeight:"100vh", background:"#0F0C29", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
@@ -34,8 +52,8 @@ export default function Join({ onJoin, onBack }) {
         {/* Logo */}
         <div style={{ width:76, height:76, borderRadius:22, background:"linear-gradient(135deg,#7C3AED,#4F46E5)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:38, margin:"0 auto 20px", boxShadow:"0 0 40px rgba(124,58,237,0.45)", animation:"float 3s ease-in-out infinite" }}>☕</div>
         <h1 style={{ color:"white", fontSize:28, fontWeight:900, margin:"0 0 4px" }}>SEMAI</h1>
-        <p style={{ color:"#A78BFA", fontSize:11, letterSpacing:3, margin:"0 0 4px" }}>AI JAVA LECTURER</p>
-        <p style={{ color:"#4B5563", fontSize:11, margin:"0 0 24px" }}>SayMyTech Developers · Makerere University</p>
+        <p style={{ color:"#A78BFA", fontSize:11, letterSpacing:3, margin:"0 0 4px" }}>AI LECTURER</p>
+        <p style={{ color:"#4B5563", fontSize:11, margin:"0 0 24px" }}>SayMyTech Developers</p>
 
         <div style={{ background:"#1A1640", borderRadius:16, padding:24, border:"1px solid #2D2757" }}>
           <p style={{ color:"#9CA3AF", fontSize:13, margin:"0 0 16px" }}>Join today's lecture</p>
@@ -43,15 +61,27 @@ export default function Join({ onJoin, onBack }) {
           {/* Name */}
           <label style={{ display:"block", color:"#6B7280", fontSize:11, textAlign:"left", marginBottom:4 }}>YOUR NAME</label>
           <input value={name} onChange={e=>setName(e.target.value)}
-            onKeyDown={e=>e.key==="Enter"&&name.trim()&&onJoin(name.trim(),courseId)}
+            onKeyDown={e=>e.key==="Enter"&&name.trim()&&courseId&&onJoin(name.trim(),courseId)}
             placeholder="Enter your name…" autoFocus
             style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:14, marginBottom:14, boxSizing:"border-box" }}/>
+
+          {/* Institution select */}
+          <label style={{ display:"block", color:"#6B7280", fontSize:11, textAlign:"left", marginBottom:4 }}>SCHOOL / INSTITUTION</label>
+          <select value={institutionId} onChange={e=>setInstitutionId(e.target.value)}
+            style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:13, marginBottom:14, boxSizing:"border-box" }}>
+            {loadingInst
+              ? <option value="">Loading schools…</option>
+              : institutions.length
+                ? institutions.map(i => <option key={i.id} value={i.id}>{i.name}</option>)
+                : <option value="">No schools registered yet</option>
+            }
+          </select>
 
           {/* Course select */}
           <label style={{ display:"block", color:"#6B7280", fontSize:11, textAlign:"left", marginBottom:4 }}>COURSE</label>
           <select value={courseId} onChange={e=>setCourseId(e.target.value)}
             style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:13, marginBottom:18, boxSizing:"border-box" }}>
-            {loading
+            {loadingCourses
               ? <option value="">Loading courses…</option>
               : courses.length
                 ? courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)

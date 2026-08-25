@@ -108,3 +108,40 @@ create policy "users manage own profile" on public.profiles for update using (au
 create policy "progress insert by anyone" on public.progress for insert with check (true);
 create policy "progress select by anyone" on public.progress for select using (true);
 create policy "progress update by anyone" on public.progress for update using (true);
+
+-- ── Institutions (multi-tenancy) — added after initial schema ──────────────
+create table if not exists public.institutions (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz default now()
+);
+
+alter table public.institutions enable row level security;
+create policy "institutions readable by anyone" on public.institutions for select using (true);
+create policy "institutions insertable by anyone" on public.institutions for insert with check (true);
+
+alter table public.profiles add column if not exists institution_id uuid references public.institutions(id);
+alter table public.courses  add column if not exists institution_id uuid references public.institutions(id);
+
+create index if not exists profiles_institution_idx on public.profiles(institution_id);
+create index if not exists courses_institution_idx  on public.courses(institution_id);
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, name, institution, institution_id)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'name', new.email),
+    new.raw_user_meta_data->>'institution',
+    nullif(new.raw_user_meta_data->>'institution_id', '')::uuid
+  );
+  return new;
+end;
+$$;
+
+revoke execute on function public.handle_new_user() from public, anon, authenticated;

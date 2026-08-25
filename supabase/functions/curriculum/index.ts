@@ -75,9 +75,26 @@ Deno.serve(async (req: Request) => {
 
   try {
     if (req.method === "GET" && !courseId) {
-      const { data: courses, error } = await sb
-        .from("courses")
-        .select("id,title,description,subject,lecturer_name");
+      const url2 = new URL(req.url);
+      const lecturer = await getCurrentLecturer(req);
+
+      let scopeInstitutionId: string | null = null;
+      if (lecturer) {
+        // Lecturer dashboard: always scope to THIS lecturer's own institution — never
+        // client-trusted, so switching institution_id in a request can't leak other schools'
+        // courses.
+        const { data: profile } = await sb.from("profiles").select("institution_id").eq("id", lecturer.id).limit(1).maybeSingle();
+        scopeInstitutionId = profile?.institution_id ?? null;
+      } else {
+        // Public/student join flow: an institution must be specified explicitly — no
+        // cross-institution browsing by default.
+        scopeInstitutionId = url2.searchParams.get("institution_id");
+        if (!scopeInstitutionId) return json({ courses: [], error: "institution_id required" });
+      }
+
+      let q = sb.from("courses").select("id,title,description,subject,lecturer_name,institution_id");
+      if (scopeInstitutionId) q = q.eq("institution_id", scopeInstitutionId);
+      const { data: courses, error } = await q;
       if (error) throw error;
       const { data: modules } = await sb.from("modules").select("course_id");
       const counts: Record<string, number> = {};
@@ -122,6 +139,10 @@ Deno.serve(async (req: Request) => {
         return json({ error: "You can only edit courses you created" }, 403);
       }
 
+      // Institution is always stamped from the lecturer's own profile — never client-supplied —
+      // so a course can never be filed under (or moved to) an institution the lecturer isn't in.
+      const { data: lecturerProfile } = await sb.from("profiles").select("institution_id").eq("id", lecturer.id).limit(1).maybeSingle();
+
       const { error: upsertErr } = await sb.from("courses").upsert({
         id,
         title,
@@ -131,6 +152,7 @@ Deno.serve(async (req: Request) => {
         lecturer_id: lecturer.id,
         lecturer_name: data.lecturer || lecturer.email,
         institution: data.institution ?? "",
+        institution_id: lecturerProfile?.institution_id ?? null,
       });
       if (upsertErr) throw upsertErr;
 

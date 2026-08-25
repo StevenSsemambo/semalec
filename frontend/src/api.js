@@ -17,8 +17,9 @@ export async function sendChat({ messages, courseId, studentName, context }) {
   return unwrap(result); // { reply: "..." }
 }
 
-export async function getCourses() {
-  const result = await supabase.functions.invoke("curriculum", { method: "GET" });
+export async function getCourses(institutionId) {
+  const path = institutionId ? `curriculum?institution_id=${encodeURIComponent(institutionId)}` : "curriculum";
+  const result = await supabase.functions.invoke(path, { method: "GET" });
   return unwrap(result); // { courses: [...] }
 }
 
@@ -80,4 +81,26 @@ export async function generateModule({ courseTitle, subject, moduleTitle, source
     body: { courseTitle, subject, moduleTitle, sourceText },
   });
   return unwrap(result); // single module object { id, icon, title, slides, practicalType, ... }
+}
+
+// ── Institutions (multi-tenancy) — plain table access via RLS, no edge function needed ─
+export async function getInstitutions() {
+  const { data, error } = await supabase.from("institutions").select("id,name").order("name");
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+// Finds an institution by exact name, or creates it if it doesn't exist yet — used at
+// lecturer sign-up so typing a new school's name self-serves a new tenant.
+export async function resolveInstitution(name) {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return null;
+  const { data: existing, error: findErr } = await supabase
+    .from("institutions").select("id,name").ilike("name", trimmed).limit(1).maybeSingle();
+  if (findErr) throw new Error(findErr.message);
+  if (existing) return existing;
+  const { data: created, error: createErr } = await supabase
+    .from("institutions").insert({ name: trimmed }).select("id,name").single();
+  if (createErr) throw new Error(createErr.message);
+  return created;
 }

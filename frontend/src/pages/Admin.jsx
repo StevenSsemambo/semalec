@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { getCourses, getCourse, deleteCourse, saveCourse, generateCourse, generateModule, uploadCourseSource } from "../api";
+import { getCourses, getCourse, deleteCourse, saveCourse, generateCourse, generateModule, uploadCourseSource, getInstitutions, resolveInstitution } from "../api";
 import { supabase, signUpLecturer, signInLecturer, signOutLecturer, getLecturerProfile } from "../supabaseClient";
 
 export default function Admin({ onBack }) {
@@ -9,6 +9,9 @@ export default function Admin({ onBack }) {
   const [authForm, setAuthForm] = useState({ email:"", password:"", name:"", institution:"" });
   const [authStatus, setAuthStatus] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [knownInstitutions, setKnownInstitutions] = useState([]);
+
+  useEffect(() => { getInstitutions().then(setKnownInstitutions).catch(()=>{}); }, []);
 
   const [courses, setCourses] = useState([]);
   const [tab, setTab] = useState("list"); // list | generate
@@ -57,7 +60,9 @@ export default function Admin({ onBack }) {
     try {
       if (authMode === "signup") {
         if (!authForm.name.trim()) throw new Error("Name is required.");
-        await signUpLecturer(authForm);
+        if (!authForm.institution.trim()) throw new Error("Institution is required.");
+        const inst = await resolveInstitution(authForm.institution);
+        await signUpLecturer({ ...authForm, institution: inst.name, institutionId: inst.id });
         setAuthStatus("✅ Account created! Check your email to confirm, then sign in.");
         setAuthMode("signin");
       } else {
@@ -248,10 +253,14 @@ export default function Admin({ onBack }) {
                 <input value={authForm.name} onChange={e=>setAuthForm(f=>({...f,name:e.target.value}))}
                   placeholder="e.g. Ssemambo Steven"
                   style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:14, marginBottom:12, boxSizing:"border-box" }}/>
-                <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>INSTITUTION</label>
+                <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>INSTITUTION *</label>
                 <input value={authForm.institution} onChange={e=>setAuthForm(f=>({...f,institution:e.target.value}))}
-                  placeholder="e.g. Makerere University Business School"
-                  style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:14, marginBottom:12, boxSizing:"border-box" }}/>
+                  placeholder="e.g. Makerere University Business School" list="known-institutions"
+                  style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:14, marginBottom:4, boxSizing:"border-box" }}/>
+                <datalist id="known-institutions">
+                  {knownInstitutions.map(i => <option key={i.id} value={i.name}/>)}
+                </datalist>
+                <p style={{ color:"#4B5563", fontSize:10.5, margin:"0 0 12px" }}>Pick your school if it's already registered, or type a new one — your courses stay separate from other institutions.</p>
               </>
             )}
             <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>EMAIL *</label>
