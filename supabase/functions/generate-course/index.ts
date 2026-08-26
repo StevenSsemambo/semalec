@@ -4,6 +4,8 @@
 // Uses a classic static AIza API key (x-goog-api-key header) — AQ. Auth keys need real OAuth
 // credentials, which a serverless Edge Function has no way to provide.
 
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -13,6 +15,41 @@ const corsHeaders = {
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
 const GEMINI_MODEL = "gemini-3.6-flash";
 const MODULE_ICONS = ["📘", "🔷", "🧱", "🔀", "🧬", "🗄️", "⚙️", "📦", "🧮", "🌐"];
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+// Course generation was previously callable with NO auth check at all — anyone with the
+// public anon key could hit this repeatedly and burn Gemini quota. Now requires a signed-in
+// lecturer, matching the pattern already used by the curriculum Edge Function.
+async function getCurrentLecturer(req: Request): Promise<{ id: string } | null> {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (!authHeader.startsWith("Bearer ")) return null;
+  const token = authHeader.slice(7);
+  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const { data, error } = await client.auth.getUser(token);
+  if (error || !data.user) return null;
+  const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const { data: profile } = await sb.from("profiles").select("role").eq("id", data.user.id).limit(1).maybeSingle();
+  if (profile?.role !== "lecturer") return null;
+  return { id: data.user.id };
+}
+
+// Simple sliding-window-ish limiter (10-minute buckets). Not perfectly atomic under a race,
+// but good enough to stop scripted abuse without adding real infrastructure for this pass.
+async function checkRateLimit(userId: string, fn: string, limit = 8, windowMs = 10 * 60 * 1000): Promise<boolean> {
+  const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs).toISOString();
+  const { data: existing } = await sb.from("rate_limits").select("count").eq("user_id", userId).eq("fn", fn).eq("window_start", windowStart).maybeSingle();
+  if (existing) {
+    if (existing.count >= limit) return false;
+    await sb.from("rate_limits").update({ count: existing.count + 1 }).eq("user_id", userId).eq("fn", fn).eq("window_start", windowStart);
+  } else {
+    await sb.from("rate_limits").insert({ user_id: userId, fn, window_start: windowStart, count: 1 });
+  }
+  return true;
+}
 
 const GENERATE_SYSTEM_PROMPT = `You are an expert curriculum designer helping a lecturer turn their raw
 course material (a description, a syllabus, or pasted slide/notes/PDF text) into a structured
@@ -115,6 +152,11 @@ Deno.serve(async (req: Request) => {
     new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   try {
+    const lecturerAuth = await getCurrentLecturer(req);
+    if (!lecturerAuth) return json({ error: "Sign in as a lecturer required" }, 401);
+    const allowed = await checkRateLimit(lecturerAuth.id, "generate-course");
+    if (!allowed) return json({ error: "You're generating courses quite fast — please wait a few minutes and try again." }, 429);
+
     const data = await req.json();
     const title = (data.title ?? "").trim();
     const lecturer = data.lecturer ?? "";

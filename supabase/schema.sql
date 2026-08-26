@@ -189,3 +189,51 @@ create policy "lecturers view their course progress" on public.progress
       where c.id = progress.course_id and c.lecturer_id = auth.uid()
     )
   );
+
+-- ── Security hardening pass ─────────────────────────────────────────────────
+-- Tighten courses/modules/slides/profiles from "readable by anyone" to real per-row
+-- institution isolation, now that every real read path is authenticated.
+drop policy if exists "courses readable by anyone" on public.courses;
+create policy "courses readable within own institution" on public.courses
+  for select using (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.institution_id = courses.institution_id)
+  );
+
+drop policy if exists "modules readable by anyone" on public.modules;
+create policy "modules readable within own institution" on public.modules
+  for select using (
+    exists (
+      select 1 from public.courses c join public.profiles p on p.institution_id = c.institution_id
+      where c.id = modules.course_id and p.id = auth.uid()
+    )
+  );
+
+drop policy if exists "slides readable by anyone" on public.slides;
+create policy "slides readable within own institution" on public.slides
+  for select using (
+    exists (
+      select 1 from public.modules m
+      join public.courses c on c.id = m.course_id
+      join public.profiles p on p.institution_id = c.institution_id
+      where m.id = slides.module_id and p.id = auth.uid()
+    )
+  );
+
+drop policy if exists "profiles readable by anyone" on public.profiles;
+create policy "profiles readable within own institution" on public.profiles
+  for select using (
+    id = auth.uid()
+    or exists (select 1 from public.profiles me where me.id = auth.uid() and me.institution_id = profiles.institution_id)
+  );
+
+-- Rate limiting substrate for the Gemini-calling Edge Functions — only ever touched via
+-- the service-role key; RLS enabled with zero policies blocks all direct client access.
+create table if not exists public.rate_limits (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  fn text not null,
+  window_start timestamptz not null,
+  count int not null default 1
+);
+create unique index if not exists rate_limits_user_fn_window_uniq on public.rate_limits(user_id, fn, window_start);
+alter table public.rate_limits enable row level security;

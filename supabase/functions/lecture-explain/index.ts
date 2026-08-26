@@ -2,6 +2,8 @@
 // Ports backend/routes/lecture.py's /lecture/explain endpoint — the slide-by-slide narration.
 // Uses Gemini instead of Claude.
 
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -10,6 +12,32 @@ const corsHeaders = {
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
 const GEMINI_MODEL = "gemini-3.6-flash";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+async function getCurrentUserId(req: Request): Promise<string | null> {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (!authHeader.startsWith("Bearer ")) return null;
+  const token = authHeader.slice(7);
+  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const { data, error } = await client.auth.getUser(token);
+  if (error || !data.user) return null;
+  return data.user.id;
+}
+
+async function checkRateLimit(userId: string, fn: string, limit = 40, windowMs = 10 * 60 * 1000): Promise<boolean> {
+  const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs).toISOString();
+  const { data: existing } = await sb.from("rate_limits").select("count").eq("user_id", userId).eq("fn", fn).eq("window_start", windowStart).maybeSingle();
+  if (existing) {
+    if (existing.count >= limit) return false;
+    await sb.from("rate_limits").update({ count: existing.count + 1 }).eq("user_id", userId).eq("fn", fn).eq("window_start", windowStart);
+  } else {
+    await sb.from("rate_limits").insert({ user_id: userId, fn, window_start: windowStart, count: 1 });
+  }
+  return true;
+}
 
 function stripMarkdownProse(text: string): string {
   if (!text) return "";
@@ -69,6 +97,11 @@ Deno.serve(async (req: Request) => {
     new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   try {
+    const userId = await getCurrentUserId(req);
+    if (!userId) return json({ error: "Sign in required" }, 401);
+    const allowed = await checkRateLimit(userId, "lecture-explain");
+    if (!allowed) return json({ error: "Too many requests in a short time — please slow down a little." }, 429);
+
     const data = await req.json();
     const courseTitle = data.courseTitle ?? "this course";
     const moduleTitle = data.moduleTitle ?? "this module";

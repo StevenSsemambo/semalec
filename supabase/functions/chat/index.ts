@@ -13,7 +13,33 @@ const corsHeaders = {
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
 const GEMINI_MODEL = "gemini-3.6-flash";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+// Requires a real signed-in user (lecturer or student) — was previously callable by anyone
+// with just the anon key, with no rate limiting, letting a script burn Gemini quota freely.
+async function getCurrentUserId(req: Request): Promise<string | null> {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (!authHeader.startsWith("Bearer ")) return null;
+  const token = authHeader.slice(7);
+  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const { data, error } = await client.auth.getUser(token);
+  if (error || !data.user) return null;
+  return data.user.id;
+}
+
+async function checkRateLimit(userId: string, fn: string, limit = 40, windowMs = 10 * 60 * 1000): Promise<boolean> {
+  const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs).toISOString();
+  const { data: existing } = await sb.from("rate_limits").select("count").eq("user_id", userId).eq("fn", fn).eq("window_start", windowStart).maybeSingle();
+  if (existing) {
+    if (existing.count >= limit) return false;
+    await sb.from("rate_limits").update({ count: existing.count + 1 }).eq("user_id", userId).eq("fn", fn).eq("window_start", windowStart);
+  } else {
+    await sb.from("rate_limits").insert({ user_id: userId, fn, window_start: windowStart, count: 1 });
+  }
+  return true;
+}
 
 function stripMarkdownProse(text: string): string {
   if (!text) return "";
@@ -90,6 +116,19 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
+    const userId = await getCurrentUserId(req);
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "Sign in required" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const allowed = await checkRateLimit(userId, "chat");
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "Too many messages in a short time — please slow down a little." }), {
+        status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const data = await req.json();
     const messages = data.messages ?? [];
     const courseId = data.courseId ?? "";

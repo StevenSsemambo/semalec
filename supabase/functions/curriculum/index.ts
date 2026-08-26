@@ -112,8 +112,28 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "GET" && courseId) {
+      // Require a real session and verify the caller's own institution matches this course's —
+      // previously any known/guessed course id returned full content to anyone with the anon key.
+      const lecturer = await getCurrentLecturer(req);
+      let callerId: string | null = lecturer?.id ?? null;
+      if (!callerId) {
+        const authHeader = req.headers.get("Authorization") ?? "";
+        if (authHeader.startsWith("Bearer ")) {
+          const anon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+          const { data } = await anon.auth.getUser(authHeader.slice(7));
+          callerId = data.user?.id ?? null;
+        }
+      }
+      if (!callerId) return json({ error: "Sign in required" }, 401);
+
+      const { data: callerProfile } = await sb.from("profiles").select("institution_id").eq("id", callerId).limit(1).maybeSingle();
+
       const { data: course } = await sb.from("courses").select("*").eq("id", courseId).limit(1).maybeSingle();
       if (!course) return json({ error: "Course not found" }, 404);
+      if (!callerProfile?.institution_id || callerProfile.institution_id !== course.institution_id) {
+        return json({ error: "Course not found" }, 404); // same message as missing — don't reveal it exists elsewhere
+      }
+
       const { data: modules } = await sb.from("modules").select("*").eq("course_id", courseId);
       const moduleIds = (modules ?? []).map((m) => m.id);
       const { data: slides } = moduleIds.length
