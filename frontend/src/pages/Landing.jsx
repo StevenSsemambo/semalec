@@ -1,4 +1,4 @@
-export default function Landing({ onPick }) {
+export default function Landing({ onPick, onTerms, onPrivacy }) {
   return (
     <div style={{ minHeight:"100vh", background:"#0F0C29", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
       <style>{`
@@ -35,6 +35,13 @@ export default function Landing({ onPick }) {
         </div>
 
         <p style={{ color:"#2D2757", fontSize:10, marginTop:20 }}>By Ssemambo Steven · SayMyTech Developers</p>
+        {(onTerms || onPrivacy) && (
+          <p style={{ fontSize:10, marginTop:6 }}>
+            {onTerms && <button onClick={onTerms} style={{ background:"none", border:"none", color:"#4B5563", fontSize:10, cursor:"pointer", padding:0, textDecoration:"underline" }}>Terms</button>}
+            {onTerms && onPrivacy && <span style={{ color:"#2D2757", margin:"0 6px" }}>·</span>}
+            {onPrivacy && <button onClick={onPrivacy} style={{ background:"none", border:"none", color:"#4B5563", fontSize:10, cursor:"pointer", padding:0, textDecoration:"underline" }}>Privacy</button>}
+          </p>
+        )}
       </div>
     </div>
   );

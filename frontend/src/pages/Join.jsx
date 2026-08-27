@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { getCourses, getInstitutions, resolveInstitution } from "../api";
 import { supabase, signUpStudent, signInStudent, signOutStudent, getStudentSession, getLecturerProfile } from "../supabaseClient";
 
-export default function Join({ onJoin, onBack }) {
+export default function Join({ onJoin, onBack, onTerms, onPrivacy }) {
   const [session, setSession] = useState(undefined); // undefined = checking, null = signed out
   const [profile, setProfile] = useState(null);
 
@@ -10,6 +10,7 @@ export default function Join({ onJoin, onBack }) {
   const [authForm, setAuthForm] = useState({ email:"", password:"", name:"", institution:"" });
   const [authStatus, setAuthStatus] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const [knownInstitutions, setKnownInstitutions] = useState([]);
 
   const [courses,  setCourses]  = useState([]);
@@ -48,6 +49,7 @@ export default function Join({ onJoin, onBack }) {
       if (authMode === "signup") {
         if (!authForm.name.trim()) throw new Error("Name is required.");
         if (!authForm.institution.trim()) throw new Error("Institution is required.");
+        if (!agreed) throw new Error("Please agree to the Terms and Privacy Policy to continue.");
         const inst = await resolveInstitution(authForm.institution);
         await signUpStudent({ ...authForm, institution: inst.name, institutionId: inst.id });
         setAuthStatus("✅ Account created! Check your email to confirm, then sign in.");
@@ -116,7 +118,19 @@ export default function Join({ onJoin, onBack }) {
 
             {authStatus && <p style={{ color: authStatus.startsWith("✅")?"#34D399":"#F87171", fontSize:12, marginBottom:12 }}>{authStatus}</p>}
 
-            <button onClick={submitAuth} disabled={authLoading || !authForm.email || !authForm.password}
+            {authMode==="signup" && (
+              <label style={{ display:"flex", alignItems:"flex-start", gap:8, marginBottom:14, cursor:"pointer" }}>
+                <input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)} style={{ marginTop:2, flexShrink:0 }}/>
+                <span style={{ fontSize:11, color:"#6B7280", lineHeight:1.5 }}>
+                  I agree to the{" "}
+                  {onTerms ? <button onClick={onTerms} style={{ background:"none", border:"none", color:"#A78BFA", fontSize:11, cursor:"pointer", padding:0, textDecoration:"underline" }}>Terms</button> : "Terms"}
+                  {" "}and{" "}
+                  {onPrivacy ? <button onClick={onPrivacy} style={{ background:"none", border:"none", color:"#A78BFA", fontSize:11, cursor:"pointer", padding:0, textDecoration:"underline" }}>Privacy Policy</button> : "Privacy Policy"}.
+                </span>
+              </label>
+            )}
+
+            <button onClick={submitAuth} disabled={authLoading || !authForm.email || !authForm.password || (authMode==="signup" && !agreed)}
               style={{ width:"100%", padding:"13px", borderRadius:10, border:"none", background:authLoading?"#374151":"linear-gradient(135deg,#7C3AED,#4F46E5)", color:"white", fontSize:14, fontWeight:700, cursor:authLoading?"default":"pointer" }}>
               {authLoading ? "Please wait…" : authMode==="signin" ? "Sign In →" : "Create Account →"}
             </button>
@@ -149,6 +163,13 @@ export default function Join({ onJoin, onBack }) {
         )}
 
         <p style={{ color:"#2D2757", fontSize:10, marginTop:14 }}>By Ssemambo Steven · SayMyTech Developers</p>
+        {(onTerms || onPrivacy) && (
+          <p style={{ fontSize:10, marginTop:6 }}>
+            {onTerms && <button onClick={onTerms} style={{ background:"none", border:"none", color:"#4B5563", fontSize:10, cursor:"pointer", padding:0, textDecoration:"underline" }}>Terms</button>}
+            {onTerms && onPrivacy && <span style={{ color:"#2D2757", margin:"0 6px" }}>·</span>}
+            {onPrivacy && <button onClick={onPrivacy} style={{ background:"none", border:"none", color:"#4B5563", fontSize:10, cursor:"pointer", padding:0, textDecoration:"underline" }}>Privacy</button>}
+          </p>
+        )}
       </div>
     </div>
   );

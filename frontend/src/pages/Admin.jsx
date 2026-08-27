@@ -2,10 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import { getCourses, getCourse, deleteCourse, saveCourse, generateCourse, generateModule, uploadCourseSource, getInstitutions, resolveInstitution, getInstitutionLecturers, getInstitutionStudents, setLecturerAdmin, getInstitutionProgressSummary, getInstitutionUsage } from "../api";
 import { supabase, signUpLecturer, signInLecturer, signOutLecturer, getLecturerProfile, getCourseProgress } from "../supabaseClient";
 
-export default function Admin({ onBack }) {
+export default function Admin({ onBack, onTerms, onPrivacy }) {
   const [session, setSession] = useState(undefined); // undefined = loading, null = signed out
   const [profile, setProfile] = useState(null);
   const [authMode, setAuthMode] = useState("signin"); // signin | signup
+  const [agreed, setAgreed] = useState(false);
   const [authForm, setAuthForm] = useState({ email:"", password:"", name:"", institution:"" });
   const [authStatus, setAuthStatus] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
@@ -107,6 +108,7 @@ export default function Admin({ onBack }) {
       if (authMode === "signup") {
         if (!authForm.name.trim()) throw new Error("Name is required.");
         if (!authForm.institution.trim()) throw new Error("Institution is required.");
+        if (!agreed) throw new Error("Please agree to the Terms and Privacy Policy to continue.");
         const inst = await resolveInstitution(authForm.institution);
         await signUpLecturer({ ...authForm, institution: inst.name, institutionId: inst.id, isAdmin: inst.created });
         setAuthStatus("✅ Account created! Check your email to confirm, then sign in.");
@@ -320,7 +322,19 @@ export default function Admin({ onBack }) {
 
             {authStatus && <p style={{ color: authStatus.startsWith("✅")?"#34D399":"#F87171", fontSize:12, marginBottom:12 }}>{authStatus}</p>}
 
-            <button onClick={submitAuth} disabled={authLoading || !authForm.email.trim() || !authForm.password.trim()}
+            {authMode === "signup" && (
+              <label style={{ display:"flex", alignItems:"flex-start", gap:8, marginBottom:14, cursor:"pointer" }}>
+                <input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)} style={{ marginTop:2, flexShrink:0 }}/>
+                <span style={{ fontSize:11, color:"#6B7280", lineHeight:1.5 }}>
+                  I agree to the{" "}
+                  {onTerms ? <button onClick={onTerms} style={{ background:"none", border:"none", color:"#A78BFA", fontSize:11, cursor:"pointer", padding:0, textDecoration:"underline" }}>Terms</button> : "Terms"}
+                  {" "}and{" "}
+                  {onPrivacy ? <button onClick={onPrivacy} style={{ background:"none", border:"none", color:"#A78BFA", fontSize:11, cursor:"pointer", padding:0, textDecoration:"underline" }}>Privacy Policy</button> : "Privacy Policy"}, and confirm I have my institution's authorization to create lecturer accounts and enroll students.
+                </span>
+              </label>
+            )}
+
+            <button onClick={submitAuth} disabled={authLoading || !authForm.email.trim() || !authForm.password.trim() || (authMode==="signup" && !agreed)}
               style={{ width:"100%", padding:"13px", borderRadius:10, border:"none", background:authLoading?"#374151":"linear-gradient(135deg,#7C3AED,#4F46E5)", color:"white", fontSize:14, fontWeight:700, cursor:authLoading?"default":"pointer", marginBottom:12 }}>
               {authLoading ? "Please wait…" : authMode === "signup" ? "Create Account →" : "Sign In →"}
             </button>
@@ -331,6 +345,13 @@ export default function Admin({ onBack }) {
             </button>
           </div>
           <button onClick={onBack} style={{ display:"block", margin:"14px auto 0", background:"none", border:"none", color:"#4B5563", fontSize:12, cursor:"pointer" }}>← Back</button>
+          {(onTerms || onPrivacy) && (
+            <p style={{ textAlign:"center", fontSize:10, marginTop:8 }}>
+              {onTerms && <button onClick={onTerms} style={{ background:"none", border:"none", color:"#4B5563", fontSize:10, cursor:"pointer", padding:0, textDecoration:"underline" }}>Terms</button>}
+              {onTerms && onPrivacy && <span style={{ color:"#2D2757", margin:"0 6px" }}>·</span>}
+              {onPrivacy && <button onClick={onPrivacy} style={{ background:"none", border:"none", color:"#4B5563", fontSize:10, cursor:"pointer", padding:0, textDecoration:"underline" }}>Privacy</button>}
+            </p>
+          )}
         </div>
       </div>
     );
