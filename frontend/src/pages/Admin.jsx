@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { getCourses, getCourse, deleteCourse, saveCourse, generateCourse, generateModule, uploadCourseSource, getInstitutions, resolveInstitution } from "../api";
+import { getCourses, getCourse, deleteCourse, saveCourse, generateCourse, generateModule, uploadCourseSource, getInstitutions, resolveInstitution, getInstitutionLecturers, getInstitutionStudents, setLecturerAdmin, getInstitutionProgressSummary, getInstitutionUsage } from "../api";
 import { supabase, signUpLecturer, signInLecturer, signOutLecturer, getLecturerProfile, getCourseProgress } from "../supabaseClient";
 
 export default function Admin({ onBack }) {
@@ -14,10 +14,40 @@ export default function Admin({ onBack }) {
   useEffect(() => { getInstitutions().then(setKnownInstitutions).catch(()=>{}); }, []);
 
   const [courses, setCourses] = useState([]);
-  const [tab, setTab] = useState("list"); // list | generate | edit | progress
+  const [tab, setTab] = useState("list"); // list | generate | edit | progress | institution
   const [progressCourseId, setProgressCourseId] = useState("");
   const [progressRows, setProgressRows] = useState([]);
   const [progressLoading, setProgressLoading] = useState(false);
+
+  const [instLecturers, setInstLecturers] = useState([]);
+  const [instStudents, setInstStudents] = useState([]);
+  const [instProgress, setInstProgress] = useState([]);
+  const [instUsage, setInstUsage] = useState([]);
+  const [instLoading, setInstLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab !== "institution" || !profile?.is_admin || !profile?.institution_id) return;
+    setInstLoading(true);
+    Promise.all([
+      getInstitutionLecturers(profile.institution_id),
+      getInstitutionStudents(profile.institution_id),
+      getInstitutionProgressSummary(profile.institution_id),
+    ]).then(async ([lecturers, students, progress]) => {
+      setInstLecturers(lecturers);
+      setInstStudents(students);
+      setInstProgress(progress);
+      const usage = await getInstitutionUsage([...lecturers, ...students].map(p => p.id)).catch(() => []);
+      setInstUsage(usage);
+      setInstLoading(false);
+    }).catch(() => setInstLoading(false));
+  }, [tab, profile]);
+
+  const toggleLecturerAdmin = async (id, current) => {
+    try {
+      await setLecturerAdmin(id, !current);
+      setInstLecturers(list => list.map(l => l.id === id ? { ...l, is_admin: !current } : l));
+    } catch (err) { alert(err.message); }
+  };
 
   useEffect(() => {
     if (tab !== "progress") return;
@@ -78,7 +108,7 @@ export default function Admin({ onBack }) {
         if (!authForm.name.trim()) throw new Error("Name is required.");
         if (!authForm.institution.trim()) throw new Error("Institution is required.");
         const inst = await resolveInstitution(authForm.institution);
-        await signUpLecturer({ ...authForm, institution: inst.name, institutionId: inst.id });
+        await signUpLecturer({ ...authForm, institution: inst.name, institutionId: inst.id, isAdmin: inst.created });
         setAuthStatus("✅ Account created! Check your email to confirm, then sign in.");
         setAuthMode("signin");
       } else {
@@ -325,9 +355,9 @@ export default function Admin({ onBack }) {
 
       <div style={{ maxWidth:740, margin:"30px auto", padding:"0 20px 60px" }}>
         <div style={{ display:"flex", gap:0, marginBottom:20, borderBottom:"1px solid #2D2D2D" }}>
-          {["list","generate","progress", ...(tab==="edit" ? ["edit"] : [])].map(t => (
+          {["list","generate","progress", ...(profile?.is_admin ? ["institution"] : []), ...(tab==="edit" ? ["edit"] : [])].map(t => (
             <button key={t} onClick={()=>{ if (t!=="edit") setTab(t); }} style={{ background:"none", border:"none", borderBottom:tab===t?"2px solid #7C3AED":"2px solid transparent", color:tab===t?"#A78BFA":"#6B7280", cursor:t==="edit"?"default":"pointer", padding:"9px 18px", fontSize:13, fontWeight:tab===t?600:400 }}>
-              {t==="list" ? `📚 All Course Units (${courses.length})` : t==="generate" ? "✨ Add a Course Unit" : t==="progress" ? "📊 Student Progress" : `✏️ Editing: ${editingCourse?.title || "…"}`}
+              {t==="list" ? `📚 All Course Units (${courses.length})` : t==="generate" ? "✨ Add a Course Unit" : t==="progress" ? "📊 Student Progress" : t==="institution" ? "🏛️ Institution" : `✏️ Editing: ${editingCourse?.title || "…"}`}
             </button>
           ))}
         </div>
@@ -624,6 +654,70 @@ export default function Admin({ onBack }) {
               </div>
             )}
           </div>
+        )}
+
+        {tab==="institution" && (
+          instLoading ? <p style={{ color:"#6B7280" }}>Loading institution data…</p> : (
+            <div style={{ display:"flex", flexDirection:"column", gap:24 }}>
+              {/* Stats row */}
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:12 }}>
+                {[
+                  ["Lecturers", instLecturers.length],
+                  ["Students", instStudents.length],
+                  ["Courses", courses.length],
+                  ["Completions", instProgress.filter(p=>p.completed).length],
+                ].map(([label,val]) => (
+                  <div key={label} style={{ background:"#1A1A2E", border:"1px solid #2D2D4A", borderRadius:12, padding:"16px 18px" }}>
+                    <div style={{ fontSize:24, fontWeight:800, color:"white" }}>{val}</div>
+                    <div style={{ fontSize:11, color:"#6B7280", marginTop:2 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Lecturers */}
+              <div>
+                <h4 style={{ fontSize:13, color:"#A78BFA", margin:"0 0 10px" }}>Lecturers</h4>
+                {instLecturers.map(l => (
+                  <div key={l.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"9px 14px", background:"#1A1A2E", border:"1px solid #2D2D4A", borderRadius:9, marginBottom:6 }}>
+                    <span style={{ fontSize:13, color:"#E2E8F0" }}>{l.name} {l.is_admin && <span style={{ fontSize:10, color:"#F0B429", marginLeft:6 }}>ADMIN</span>}</span>
+                    <button onClick={()=>toggleLecturerAdmin(l.id, l.is_admin)}
+                      style={{ background:"#374151", border:"none", borderRadius:7, padding:"5px 12px", color:"white", cursor:"pointer", fontSize:11 }}>
+                      {l.is_admin ? "Remove admin" : "Make admin"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Students */}
+              <div>
+                <h4 style={{ fontSize:13, color:"#A78BFA", margin:"0 0 10px" }}>Students ({instStudents.length})</h4>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                  {instStudents.map(s => (
+                    <span key={s.id} style={{ fontSize:12, color:"#9CA3AF", background:"#1A1A2E", border:"1px solid #2D2D4A", borderRadius:20, padding:"5px 12px" }}>{s.name}</span>
+                  ))}
+                  {instStudents.length === 0 && <p style={{ color:"#4B5563", fontSize:12 }}>No students yet.</p>}
+                </div>
+              </div>
+
+              {/* AI usage */}
+              <div>
+                <h4 style={{ fontSize:13, color:"#A78BFA", margin:"0 0 10px" }}>AI usage (current 10-min window)</h4>
+                {instUsage.length === 0 ? (
+                  <p style={{ color:"#4B5563", fontSize:12 }}>No AI calls in the current window.</p>
+                ) : (
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:10 }}>
+                    {Object.entries(instUsage.reduce((acc,r)=>{ acc[r.fn]=(acc[r.fn]||0)+r.count; return acc; }, {})).map(([fn,count]) => (
+                      <div key={fn} style={{ background:"#1A1A2E", border:"1px solid #2D2D4A", borderRadius:9, padding:"8px 14px" }}>
+                        <span style={{ fontSize:12, color:"#E2E8F0" }}>{fn}</span>
+                        <span style={{ fontSize:12, color:"#6B7280", marginLeft:8 }}>{count} calls</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p style={{ color:"#4B5563", fontSize:10.5, marginTop:8 }}>Rolling 10-minute window only — for a full historical usage/cost view, this would need a proper analytics pipeline.</p>
+              </div>
+            </div>
+          )
         )}
       </div>
     </div>

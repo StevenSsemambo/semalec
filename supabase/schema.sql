@@ -237,3 +237,54 @@ create table if not exists public.rate_limits (
 );
 create unique index if not exists rate_limits_user_fn_window_uniq on public.rate_limits(user_id, fn, window_start);
 alter table public.rate_limits enable row level security;
+
+-- ── Institution admin dashboard ──────────────────────────────────────────────
+alter table public.profiles add column if not exists is_admin boolean not null default false;
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, name, institution, institution_id, role, is_admin)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'name', new.email),
+    new.raw_user_meta_data->>'institution',
+    nullif(new.raw_user_meta_data->>'institution_id', '')::uuid,
+    coalesce(new.raw_user_meta_data->>'role', 'lecturer'),
+    coalesce((new.raw_user_meta_data->>'is_admin')::boolean, false)
+  );
+  return new;
+end;
+$$;
+
+revoke execute on function public.handle_new_user() from public, anon, authenticated;
+
+create policy "admins manage institution profiles" on public.profiles
+  for update using (
+    exists (
+      select 1 from public.profiles admin
+      where admin.id = auth.uid() and admin.is_admin = true and admin.institution_id = profiles.institution_id
+    )
+  );
+
+create policy "admins view institution progress" on public.progress
+  for select using (
+    exists (
+      select 1 from public.profiles admin
+      join public.courses c on c.institution_id = admin.institution_id
+      where admin.id = auth.uid() and admin.is_admin = true and c.id = progress.course_id
+    )
+  );
+
+create policy "admins view institution rate limits" on public.rate_limits
+  for select using (
+    exists (
+      select 1 from public.profiles admin
+      join public.profiles u on u.institution_id = admin.institution_id
+      where admin.id = auth.uid() and admin.is_admin = true and u.id = rate_limits.user_id
+    )
+  );

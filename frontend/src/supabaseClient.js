@@ -7,11 +7,11 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ── Lecturer auth helpers ────────────────────────────────────────────────────
-export async function signUpLecturer({ email, password, name, institution, institutionId }) {
+export async function signUpLecturer({ email, password, name, institution, institutionId, isAdmin }) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { name, institution, institution_id: institutionId, role: "lecturer" } }, // read by handle_new_user() trigger in schema.sql
+    options: { data: { name, institution, institution_id: institutionId, role: "lecturer", is_admin: !!isAdmin } }, // read by handle_new_user() trigger in schema.sql
   });
   if (error) throw error;
   return data;

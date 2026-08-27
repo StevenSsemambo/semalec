@@ -91,16 +91,56 @@ export async function getInstitutions() {
 }
 
 // Finds an institution by exact name, or creates it if it doesn't exist yet — used at
-// lecturer sign-up so typing a new school's name self-serves a new tenant.
+// lecturer sign-up so typing a new school's name self-serves a new tenant. `created` tells
+// the caller whether this lecturer is the one founding the institution (first lecturer in =
+// institution admin).
 export async function resolveInstitution(name) {
   const trimmed = (name || "").trim();
   if (!trimmed) return null;
   const { data: existing, error: findErr } = await supabase
     .from("institutions").select("id,name").ilike("name", trimmed).limit(1).maybeSingle();
   if (findErr) throw new Error(findErr.message);
-  if (existing) return existing;
+  if (existing) return { ...existing, created: false };
   const { data: created, error: createErr } = await supabase
     .from("institutions").insert({ name: trimmed }).select("id,name").single();
   if (createErr) throw new Error(createErr.message);
-  return created;
+  return { ...created, created: true };
+}
+
+// ── Institution admin dashboard — plain table access via RLS ────────────────
+// (all four below are only readable/writable per the "admins ..." RLS policies added in
+// the institution-admin migration; a non-admin caller gets nothing back, not an error)
+export async function getInstitutionLecturers(institutionId) {
+  const { data, error } = await supabase.from("profiles")
+    .select("id,name,is_admin").eq("institution_id", institutionId).eq("role", "lecturer").order("name");
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+export async function getInstitutionStudents(institutionId) {
+  const { data, error } = await supabase.from("profiles")
+    .select("id,name").eq("institution_id", institutionId).eq("role", "student").order("name");
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+export async function setLecturerAdmin(userId, isAdmin) {
+  const { error } = await supabase.from("profiles").update({ is_admin: isAdmin }).eq("id", userId);
+  if (error) throw new Error(error.message);
+}
+
+export async function getInstitutionProgressSummary(institutionId) {
+  const { data, error } = await supabase.from("progress")
+    .select("completed, student_id, courses!inner(institution_id)")
+    .eq("courses.institution_id", institutionId);
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+export async function getInstitutionUsage(userIds) {
+  if (!userIds || !userIds.length) return [];
+  const { data, error } = await supabase.from("rate_limits")
+    .select("fn, count, user_id").in("user_id", userIds);
+  if (error) throw new Error(error.message);
+  return data || [];
 }
