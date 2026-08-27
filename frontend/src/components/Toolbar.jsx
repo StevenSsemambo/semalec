@@ -2,16 +2,16 @@ import { useState } from "react";
 
 function Btn({ icon, label, onClick, active, danger, disabled, badge }) {
   return (
-    <div style={{ position:"relative" }}>
+    <div style={{ position:"relative", flexShrink:0 }}>
       <button onClick={onClick} disabled={disabled} style={{
         display:"flex", flexDirection:"column", alignItems:"center", gap:3,
         background:"none", border:"none", color:disabled?"#3F3F3F":"white",
-        cursor:disabled?"default":"pointer", padding:"4px 10px", borderRadius:8,
+        cursor:disabled?"default":"pointer", padding:"4px 8px", borderRadius:8,
         opacity:disabled?0.4:1, transition:"background 0.15s",
       }}>
         <div style={{
           width:40, height:40, borderRadius:"50%", display:"flex", alignItems:"center",
-          justifyContent:"center", fontSize:17, transition:"background 0.15s",
+          justifyContent:"center", fontSize:17, transition:"background 0.15s", flexShrink:0,
           background: danger?"#991B1B" : active?"#5B21B6" : "rgba(255,255,255,0.08)",
           border: active&&!danger ? "1px solid #7C3AED" : "1px solid transparent",
         }}>
@@ -20,7 +20,7 @@ function Btn({ icon, label, onClick, active, danger, disabled, badge }) {
         <span style={{ fontSize:10, color:disabled?"#3F3F3F":"#9CA3AF", whiteSpace:"nowrap" }}>{label}</span>
       </button>
       {badge > 0 && (
-        <div style={{ position:"absolute", top:2, right:4, background:"#DC2626", borderRadius:"50%", width:15, height:15, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:700, color:"white", pointerEvents:"none" }}>
+        <div style={{ position:"absolute", top:2, right:2, background:"#DC2626", borderRadius:"50%", width:15, height:15, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:700, color:"white", pointerEvents:"none" }}>
           {badge}
         </div>
       )}
@@ -35,11 +35,21 @@ export default function Toolbar({
   loading, hasMod,
   chatOpen, onToggleChat, unread,
   onQuiz, onLeave,
+  speechSupported = true,
 }) {
   const [open, setOpen] = useState(true);
 
   return (
     <div style={{ background:"#242424", borderTop:"1px solid #333", flexShrink:0 }}>
+      <style>{`
+        @media (max-width: 680px) {
+          .semai-toolbar-row { flex-wrap: wrap; row-gap: 6px; }
+          .semai-toolbar-center { order: 3; width: 100%; overflow-x: auto; justify-content: flex-start !important; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+          .semai-toolbar-left { order: 1; }
+          .semai-toolbar-right { order: 2; margin-left: auto; }
+        }
+      `}</style>
+
       {/* Collapse pill */}
       <div onClick={() => setOpen(o => !o)}
         style={{ height:22, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", gap:8 }}>
@@ -49,16 +59,17 @@ export default function Toolbar({
       </div>
 
       {open && (
-        <div style={{ padding:"6px 14px 10px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div className="semai-toolbar-row" style={{ padding:"6px 14px 10px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           {/* Left — audio */}
-          <div style={{ display:"flex", gap:2 }}>
+          <div className="semai-toolbar-left" style={{ display:"flex", gap:2, flexShrink:0 }}>
             <Btn icon={micMuted?"🔇":"🎙️"}  label={micMuted?"Unmute":"Mute"}     onClick={onToggleMic}    danger={micMuted}/>
             <Btn icon={audioOn?"🔊":"🔈"}    label={audioOn?"Voice On":"Voice Off"} onClick={onToggleAudio} danger={!audioOn}/>
           </div>
 
-          {/* Centre */}
-          <div style={{ display:"flex", gap:2, alignItems:"center" }}>
-            <Btn icon="🗣️" label={listening?"Listening…":"Ask SEMAI"} onClick={onAskVoice}  active={listening} disabled={micMuted}/>
+          {/* Centre — scrolls horizontally on narrow screens instead of squeezing/overlapping */}
+          <div className="semai-toolbar-center" style={{ display:"flex", gap:2, alignItems:"center" }}>
+            <Btn icon="🗣️" label={!speechSupported ? "Voice N/A" : listening ? "Listening…" : "Ask SEMAI"}
+              onClick={onAskVoice} active={listening} disabled={micMuted || !speechSupported}/>
             <Btn icon="✋" label={raisedHand?"Lower Hand":"Raise Hand"}  onClick={onRaiseHand} active={raisedHand}/>
             {screen==="slides" && <Btn icon="▶" label="Next Slide"    onClick={onNextSlide}   disabled={loading||!hasMod}/>}
             {screen==="ide"    && <Btn icon="📋" label={practicalType==="code" ? "Explain Code" : "Explain Again"}  onClick={onExplainCode} disabled={loading||!hasMod}/>}
@@ -67,10 +78,12 @@ export default function Toolbar({
           </div>
 
           {/* Right — leave */}
-          <button onClick={onLeave}
-            style={{ background:"#991B1B", border:"none", borderRadius:8, padding:"8px 14px", color:"white", cursor:"pointer", fontSize:12, fontWeight:700 }}>
-            Leave
-          </button>
+          <div className="semai-toolbar-right" style={{ flexShrink:0 }}>
+            <button onClick={onLeave}
+              style={{ background:"#991B1B", border:"none", borderRadius:8, padding:"8px 14px", color:"white", cursor:"pointer", fontSize:12, fontWeight:700 }}>
+              Leave
+            </button>
+          </div>
         </div>
       )}
     </div>

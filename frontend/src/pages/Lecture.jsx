@@ -279,28 +279,36 @@ export default function Lecture({ studentName, studentId, courseId, onLeave, onA
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:#111}::-webkit-scrollbar-thumb{background:#374151;border-radius:4px}
         input,textarea{user-select:text!important}
+        @media (max-width: 640px) {
+          .semai-topbar { height:auto !important; min-height:46px; flex-wrap:wrap; padding:6px 10px !important; row-gap:4px; }
+          .semai-topbar-left { min-width:0; flex-wrap:wrap; row-gap:4px; }
+          .semai-topbar-left span { max-width: 46vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+          .semai-topbar-timer { display:none !important; }
+          .semai-topbar-studentname { display:none !important; }
+          .semai-topbar-speaking-label { display:none !important; }
+        }
       `}</style>
 
       {/* ── Top bar ────────────────────────────────────────────────────────── */}
-      <div style={{ background:"#242424", height:46, display:"flex", alignItems:"center", padding:"0 14px", justifyContent:"space-between", flexShrink:0, borderBottom:"1px solid #333" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:7, height:7, borderRadius:"50%", background:"#16A34A", animation:"pulse 2s infinite" }}/>
+      <div className="semai-topbar" style={{ background:"#242424", height:46, display:"flex", alignItems:"center", padding:"0 14px", justifyContent:"space-between", flexShrink:0, borderBottom:"1px solid #333", position:"relative" }}>
+        <div className="semai-topbar-left" style={{ display:"flex", alignItems:"center", gap:10, minWidth:0 }}>
+          <div style={{ width:7, height:7, borderRadius:"50%", background:"#16A34A", animation:"pulse 2s infinite", flexShrink:0 }}/>
           <span style={{ fontWeight:700, fontSize:13 }}>SEMAI — {course.title}</span>
           {mod && <span style={{ background:"#312E81", border:"1px solid #4338CA", borderRadius:20, padding:"1px 10px", fontSize:10, color:"#A5B4FC" }}>{mod.icon} {mod.title}</span>}
           {screen==="slides" && mod && <span style={{ fontSize:10, color:"#4B5563" }}>Slide {slideIdx+1}/{mod.slides.length}</span>}
           {screen==="ide"    && <span style={{ fontSize:10, color:"#4B5563" }}>{practicalIcon} {practicalLabel}{practicalSteps ? ` · Step ${Math.max(activeStepIdx+1,1)}/${practicalSteps.length}` : ""}</span>}
         </div>
-        <span style={{ color:"#4B5563", fontSize:12, fontFamily:"monospace", position:"absolute", left:"50%", transform:"translateX(-50%)" }}>{fmt(secs)}</span>
-        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+        <span className="semai-topbar-timer" style={{ color:"#4B5563", fontSize:12, fontFamily:"monospace", position:"absolute", left:"50%", transform:"translateX(-50%)" }}>{fmt(secs)}</span>
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
           {voice.speaking && (
             <div style={{ display:"flex", alignItems:"center", gap:4 }}>
               {[1,2,3,2,1].map((h,i)=>(
                 <div key={i} style={{ width:3, borderRadius:3, background:"#7C3AED", animation:`wave ${0.3+h*0.06}s ${i*0.07}s ease-in-out infinite alternate`, minHeight:4 }}/>
               ))}
-              <span style={{ fontSize:10, color:"#7C3AED", marginLeft:4 }}>SEMAI speaking</span>
+              <span className="semai-topbar-speaking-label" style={{ fontSize:10, color:"#7C3AED", marginLeft:4 }}>SEMAI speaking</span>
             </div>
           )}
-          <span style={{ color:"#4B5563", fontSize:11 }}>👤 {studentName}</span>
+          <span className="semai-topbar-studentname" style={{ color:"#4B5563", fontSize:11 }}>👤 {studentName}</span>
           <button onClick={()=>setDrawerOpen(o=>!o)}
             style={{ background:drawerOpen?"#7C3AED":"#374151", border:"none", borderRadius:7, padding:"5px 11px", color:"white", cursor:"pointer", fontSize:12 }}>
             ☰ Modules
@@ -472,6 +480,7 @@ export default function Lecture({ studentName, studentId, courseId, onLeave, onA
         audioOn={voice.audioOn}      onToggleAudio={voice.toggleAudio}
         listening={voice.listening}  onAskVoice={handleVoiceAsk}
         raisedHand={raisedHand}      onRaiseHand={toggleHand}
+        speechSupported={voice.speechSupported}
         screen={screen}
         onNextSlide={handleManualNext}
         practicalType={mod?.practicalType}

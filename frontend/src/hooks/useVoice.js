@@ -72,6 +72,12 @@ export function useVoice() {
   const recogRef = useRef(null);
   const speechIdRef = useRef(0); // guards against a stale queue firing callbacks after cancel()/a newer speak()
 
+  // Real per-browser feature detection — Firefox and most non-Chromium mobile browsers
+  // don't support SpeechRecognition at all; TTS (speechSynthesis) is far more widely
+  // supported but not universal in embedded webviews.
+  const ttsSupported = typeof window !== "undefined" && !!window.speechSynthesis;
+  const speechSupported = typeof window !== "undefined" && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
   // Pre-load voices on mount
   useEffect(() => {
     if (!window.speechSynthesis) return;
@@ -80,9 +86,24 @@ export function useVoice() {
   }, []);
 
   const speak = useCallback((text, onDone) => {
-    if (!audioOn || !window.speechSynthesis) { onDone?.(); return; }
-    window.speechSynthesis.cancel();
     const mySpeechId = ++speechIdRef.current;
+
+    if (!audioOn || !ttsSupported) {
+      // No audio (muted, or the browser simply doesn't support speechSynthesis) — still
+      // give the student a fair reading window before auto-advancing, instead of firing
+      // onDone instantly and racing through the whole lecture in captions-only mode.
+      setSpeaking(true);
+      setCaption((text || "").slice(0, 220) + (text && text.length > 220 ? "…" : ""));
+      const words = (text || "").trim().split(/\s+/).filter(Boolean).length;
+      const readMs = Math.max(1800, Math.min(22000, (words / 170) * 60000)); // ~170wpm, capped
+      setTimeout(() => {
+        if (speechIdRef.current !== mySpeechId) return;
+        setSpeaking(false); setCaption(""); onDone?.();
+      }, readMs);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
 
     const clean = cleanForSpeech(text);
     const chunks = splitIntoSpeechChunks(clean);
@@ -159,5 +180,6 @@ export function useVoice() {
     audioOn, toggleAudio,
     listening, startListening, stopListening,
     micMuted, toggleMic,
+    ttsSupported, speechSupported,
   };
 }
