@@ -288,3 +288,34 @@ create policy "admins view institution rate limits" on public.rate_limits
       where admin.id = auth.uid() and admin.is_admin = true and u.id = rate_limits.user_id
     )
   );
+
+-- ── Username-based auth (replaces email/password) ───────────────────────────
+alter table public.profiles add column if not exists username text unique;
+
+update public.profiles set username = lower(regexp_replace(name, '[^a-zA-Z0-9]+', '', 'g'))
+  where username is null;
+
+alter table public.profiles alter column username set not null;
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, name, institution, institution_id, role, is_admin, username)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'name', new.email),
+    new.raw_user_meta_data->>'institution',
+    nullif(new.raw_user_meta_data->>'institution_id', '')::uuid,
+    coalesce(new.raw_user_meta_data->>'role', 'lecturer'),
+    coalesce((new.raw_user_meta_data->>'is_admin')::boolean, false),
+    new.raw_user_meta_data->>'username'
+  );
+  return new;
+end;
+$$;
+
+revoke execute on function public.handle_new_user() from public, anon, authenticated;

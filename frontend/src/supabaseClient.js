@@ -6,20 +6,50 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// ── Username-based identity ──────────────────────────────────────────────────
+// Supabase Auth is email-based under the hood — there's no native "username" login.
+// We derive a synthetic, non-deliverable internal email deterministically from the
+// username (nobody ever sees or types it) so Auth still works normally, but there's no
+// real email to confirm and no email-confirmation friction at all. Usernames are global
+// across the app (one lecturer and one student can't both be "steve").
+const USERNAME_RE = /^[a-zA-Z0-9_.-]{3,24}$/;
+
+export function validateUsername(username) {
+  const u = (username || "").trim();
+  if (!u) return "Username is required.";
+  if (!USERNAME_RE.test(u)) return "Username must be 3-24 characters: letters, numbers, underscore, dot, or hyphen only.";
+  return null;
+}
+
+function usernameToEmail(username) {
+  return `${username.trim().toLowerCase()}@users.semai.local`;
+}
+
+function friendlyAuthError(error) {
+  const msg = error?.message || "Something went wrong.";
+  if (/already registered|already exists/i.test(msg)) return "That username is already taken.";
+  if (/invalid login credentials/i.test(msg)) return "Incorrect username or password.";
+  return msg;
+}
+
 // ── Lecturer auth helpers ────────────────────────────────────────────────────
-export async function signUpLecturer({ email, password, name, institution, institutionId, isAdmin }) {
+export async function signUpLecturer({ username, password, name, institution, institutionId, isAdmin }) {
+  const usernameErr = validateUsername(username);
+  if (usernameErr) throw new Error(usernameErr);
   const { data, error } = await supabase.auth.signUp({
-    email,
+    email: usernameToEmail(username),
     password,
-    options: { data: { name, institution, institution_id: institutionId, role: "lecturer", is_admin: !!isAdmin } }, // read by handle_new_user() trigger in schema.sql
+    options: { data: { username: username.trim().toLowerCase(), name, institution, institution_id: institutionId, role: "lecturer", is_admin: !!isAdmin } }, // read by handle_new_user() trigger in schema.sql
   });
-  if (error) throw error;
+  if (error) throw new Error(friendlyAuthError(error));
   return data;
 }
 
-export async function signInLecturer({ email, password }) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
+export async function signInLecturer({ username, password }) {
+  const usernameErr = validateUsername(username);
+  if (usernameErr) throw new Error(usernameErr);
+  const { data, error } = await supabase.auth.signInWithPassword({ email: usernameToEmail(username), password });
+  if (error) throw new Error(friendlyAuthError(error));
   return data;
 }
 
@@ -35,26 +65,30 @@ export async function getLecturerSession() {
 export async function getLecturerProfile(userId) {
   const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
   if (error) return null;
-  return data; // { id, name, institution }
+  return data; // { id, name, username, institution, ... }
 }
 
 // ── Student auth helpers ─────────────────────────────────────────────────────
 // Same underlying identity table/trigger as lecturers, differentiated by role — gives
 // students a real, persistent identity instead of a free-typed name, so progress can
 // actually be attributed and shown to a lecturer/institution.
-export async function signUpStudent({ email, password, name, institution, institutionId }) {
+export async function signUpStudent({ username, password, name, institution, institutionId }) {
+  const usernameErr = validateUsername(username);
+  if (usernameErr) throw new Error(usernameErr);
   const { data, error } = await supabase.auth.signUp({
-    email,
+    email: usernameToEmail(username),
     password,
-    options: { data: { name, institution, institution_id: institutionId, role: "student" } },
+    options: { data: { username: username.trim().toLowerCase(), name, institution, institution_id: institutionId, role: "student" } },
   });
-  if (error) throw error;
+  if (error) throw new Error(friendlyAuthError(error));
   return data;
 }
 
-export async function signInStudent({ email, password }) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
+export async function signInStudent({ username, password }) {
+  const usernameErr = validateUsername(username);
+  if (usernameErr) throw new Error(usernameErr);
+  const { data, error } = await supabase.auth.signInWithPassword({ email: usernameToEmail(username), password });
+  if (error) throw new Error(friendlyAuthError(error));
   return data;
 }
 

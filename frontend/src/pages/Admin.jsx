@@ -7,7 +7,7 @@ export default function Admin({ onBack, onTerms, onPrivacy }) {
   const [profile, setProfile] = useState(null);
   const [authMode, setAuthMode] = useState("signin"); // signin | signup
   const [agreed, setAgreed] = useState(false);
-  const [authForm, setAuthForm] = useState({ email:"", password:"", name:"", institution:"" });
+  const [authForm, setAuthForm] = useState({ username:"", password:"", name:"", institution:"" });
   const [authStatus, setAuthStatus] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [knownInstitutions, setKnownInstitutions] = useState([]);
@@ -111,8 +111,8 @@ export default function Admin({ onBack, onTerms, onPrivacy }) {
         if (!agreed) throw new Error("Please agree to the Terms and Privacy Policy to continue.");
         const inst = await resolveInstitution(authForm.institution);
         await signUpLecturer({ ...authForm, institution: inst.name, institutionId: inst.id, isAdmin: inst.created });
-        setAuthStatus("✅ Account created! Check your email to confirm, then sign in.");
-        setAuthMode("signin");
+        setAuthStatus("✅ Account created! Signing you in…");
+        await signInLecturer(authForm);
       } else {
         await signInLecturer(authForm);
       }
@@ -311,9 +311,9 @@ export default function Admin({ onBack, onTerms, onPrivacy }) {
                 <p style={{ color:"#4B5563", fontSize:10.5, margin:"0 0 12px" }}>Pick your school if it's already registered, or type a new one — your courses stay separate from other institutions.</p>
               </>
             )}
-            <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>EMAIL *</label>
-            <input type="email" value={authForm.email} onChange={e=>setAuthForm(f=>({...f,email:e.target.value}))}
-              placeholder="you@example.com"
+            <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>USERNAME *</label>
+            <input value={authForm.username} onChange={e=>setAuthForm(f=>({...f,username:e.target.value}))}
+              placeholder="e.g. profssemambo" autoCapitalize="off" autoCorrect="off"
               style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:"1px solid #3730A3", background:"#0F0C29", color:"white", fontSize:14, marginBottom:12, boxSizing:"border-box" }}/>
             <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>PASSWORD *</label>
             <input type="password" value={authForm.password} onChange={e=>setAuthForm(f=>({...f,password:e.target.value}))}
@@ -334,7 +334,7 @@ export default function Admin({ onBack, onTerms, onPrivacy }) {
               </label>
             )}
 
-            <button onClick={submitAuth} disabled={authLoading || !authForm.email.trim() || !authForm.password.trim() || (authMode==="signup" && !agreed)}
+            <button onClick={submitAuth} disabled={authLoading || !authForm.username.trim() || !authForm.password.trim() || (authMode==="signup" && !agreed)}
               style={{ width:"100%", padding:"13px", borderRadius:10, border:"none", background:authLoading?"#374151":"linear-gradient(135deg,#7C3AED,#4F46E5)", color:"white", fontSize:14, fontWeight:700, cursor:authLoading?"default":"pointer", marginBottom:12 }}>
               {authLoading ? "Please wait…" : authMode === "signup" ? "Create Account →" : "Sign In →"}
             </button>
@@ -358,7 +358,7 @@ export default function Admin({ onBack, onTerms, onPrivacy }) {
   }
 
   // ── Signed in ────────────────────────────────────────────────────────────
-  const displayName = profile?.name || session.user.email;
+  const displayName = profile?.name || profile?.username;
 
   return (
     <div style={{ minHeight:"100vh", background:"#0F0C29", fontFamily:"'Segoe UI',system-ui,sans-serif", color:"white" }}>
@@ -391,7 +391,7 @@ export default function Admin({ onBack, onTerms, onPrivacy }) {
             </p>
             {courses.length === 0 && <p style={{ color:"#4B5563", textAlign:"center", marginTop:30 }}>No courses yet. Try "Add a Course Unit" above.</p>}
             {courses.map(c => {
-              const isMine = c.lecturer && (c.lecturer === profile?.name || c.lecturer === session.user.email);
+              const isMine = c.lecturer && (c.lecturer === profile?.name || c.lecturer === profile?.username);
               return (
                 <div key={c.id} style={{ background:"#1A1A2E", border:"1px solid #2D2D4A", borderRadius:12, padding:"16px 18px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
                   <div>

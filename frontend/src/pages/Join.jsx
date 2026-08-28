@@ -7,7 +7,7 @@ export default function Join({ onJoin, onBack, onTerms, onPrivacy }) {
   const [profile, setProfile] = useState(null);
 
   const [authMode, setAuthMode] = useState("signin"); // signin | signup
-  const [authForm, setAuthForm] = useState({ email:"", password:"", name:"", institution:"" });
+  const [authForm, setAuthForm] = useState({ username:"", password:"", name:"", institution:"" });
   const [authStatus, setAuthStatus] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [agreed, setAgreed] = useState(false);
@@ -52,8 +52,8 @@ export default function Join({ onJoin, onBack, onTerms, onPrivacy }) {
         if (!agreed) throw new Error("Please agree to the Terms and Privacy Policy to continue.");
         const inst = await resolveInstitution(authForm.institution);
         await signUpStudent({ ...authForm, institution: inst.name, institutionId: inst.id });
-        setAuthStatus("✅ Account created! Check your email to confirm, then sign in.");
-        setAuthMode("signin");
+        setAuthStatus("✅ Account created! Signing you in…");
+        await signInStudent(authForm);
       } else {
         await signInStudent(authForm);
       }
@@ -109,8 +109,9 @@ export default function Join({ onJoin, onBack, onTerms, onPrivacy }) {
               </>
             )}
 
-            <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>EMAIL</label>
-            <input type="email" value={authForm.email} onChange={e=>setAuthForm(f=>({...f,email:e.target.value}))} style={inputStyle}/>
+            <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>USERNAME</label>
+            <input value={authForm.username} onChange={e=>setAuthForm(f=>({...f,username:e.target.value}))}
+              placeholder="e.g. jsempala" autoCapitalize="off" autoCorrect="off" style={inputStyle}/>
 
             <label style={{ display:"block", color:"#6B7280", fontSize:11, marginBottom:4 }}>PASSWORD</label>
             <input type="password" value={authForm.password} onChange={e=>setAuthForm(f=>({...f,password:e.target.value}))}
@@ -130,7 +131,7 @@ export default function Join({ onJoin, onBack, onTerms, onPrivacy }) {
               </label>
             )}
 
-            <button onClick={submitAuth} disabled={authLoading || !authForm.email || !authForm.password || (authMode==="signup" && !agreed)}
+            <button onClick={submitAuth} disabled={authLoading || !authForm.username || !authForm.password || (authMode==="signup" && !agreed)}
               style={{ width:"100%", padding:"13px", borderRadius:10, border:"none", background:authLoading?"#374151":"linear-gradient(135deg,#7C3AED,#4F46E5)", color:"white", fontSize:14, fontWeight:700, cursor:authLoading?"default":"pointer" }}>
               {authLoading ? "Please wait…" : authMode==="signin" ? "Sign In →" : "Create Account →"}
             </button>
@@ -138,7 +139,7 @@ export default function Join({ onJoin, onBack, onTerms, onPrivacy }) {
 
         ) : (
           <div style={{ background:"#1A1640", borderRadius:16, padding:24, border:"1px solid #2D2757" }}>
-            <p style={{ color:"#9CA3AF", fontSize:13, margin:"0 0 4px" }}>Welcome back, {profile?.name || session.user.email}</p>
+            <p style={{ color:"#9CA3AF", fontSize:13, margin:"0 0 4px" }}>Welcome back, {profile?.name || profile?.username}</p>
             <p style={{ color:"#4B5563", fontSize:11, margin:"0 0 16px" }}>{profile?.institution || "…"}</p>
 
             <label style={{ display:"block", color:"#6B7280", fontSize:11, textAlign:"left", marginBottom:4 }}>COURSE</label>
@@ -151,7 +152,7 @@ export default function Join({ onJoin, onBack, onTerms, onPrivacy }) {
               }
             </select>
 
-            <button onClick={()=>courseId && onJoin(profile?.name || session.user.email, courseId, session.user.id)} disabled={!courseId}
+            <button onClick={()=>courseId && onJoin(profile?.name || profile?.username, courseId, session.user.id)} disabled={!courseId}
               style={{ width:"100%", padding:"13px", borderRadius:10, border:"none", background:courseId?"linear-gradient(135deg,#7C3AED,#4F46E5)":"#2D2757", color:courseId?"white":"#6B7280", fontSize:14, fontWeight:700, cursor:courseId?"pointer":"default", marginBottom:10 }}>
               Join Lecture →
             </button>
